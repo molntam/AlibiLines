@@ -1,17 +1,18 @@
 import { hotelCase } from "./case.js";
 import {
-  canMove,
-  clueSatisfied,
-  createInitialPaths,
-  getBlockingObject,
-  getEndpointOwner,
-  getOccupancy,
-  getSuspect,
-  getWalkableCells,
-  isAdjacent,
+  edgeKey,
+  evidenceProgress,
+  formatCaseTime,
+  getEvidenceState,
+  getNextMoveErrors,
+  getPerson,
+  getRoomId,
+  getStartEvidence,
   pathsEqual,
-  routeComplete,
-  validateBoard
+  timelineComplete,
+  validateReconstruction,
+  validateTimeline,
+  createInitialPaths
 } from "./game-logic.js";
 
 const storageKey = `alibi-lines:${hotelCase.id}:paths`;
@@ -21,9 +22,7 @@ const floorObjectIcons = {
   desk: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M6 13h28v15H6zM10 28v6m20-6v6M20 13v15M23 18h6"/></svg>',
   statue: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="10" r="5"/><path d="M13 28c1-8 3-13 7-13s6 5 7 13M9 29h22v5H9z"/></svg>',
   piano: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M7 9h24c3 0 4 2 3 5l-3 13H9zM11 27v7m17-7v7M10 18h22M15 18v9m5-9v9m5-9v9"/></svg>',
-  fountain: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 7v12m-6-8c0 4 2 7 6 8 4-1 6-4 6-8M8 22h24c-1 7-5 11-12 11S9 29 8 22z"/></svg>',
-  weapon: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M29 7 16 24m-4-2 7 6m-10 4 8-8m9-14 4-3-1 5"/></svg>',
-  victim: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="9" r="4"/><path d="M20 13v10m0-5-8 5m8-5 8 5m-8 0-6 10m6-10 6 10"/></svg>'
+  fountain: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 7v12m-6-8c0 4 2 7 6 8 4-1 6-4 6-8M8 22h24c-1 7-5 11-12 11S9 29 8 22z"/></svg>'
 };
 
 const elements = {
@@ -33,20 +32,26 @@ const elements = {
   difficulty: document.querySelector("#difficulty"),
   briefing: document.querySelector("#briefing-copy"),
   objective: document.querySelector("#objective-copy"),
-  victimName: document.querySelector("#victim-name"),
   grid: document.querySelector("#game-grid"),
   cells: document.querySelector("#grid-cells"),
   routeLayer: document.querySelector("#route-layer"),
-  coveredCount: document.querySelector("#covered-count"),
-  tileCount: document.querySelector("#tile-count"),
+  selectedPersonName: document.querySelector("#selected-person-name"),
+  currentTime: document.querySelector("#current-time"),
   completedCount: document.querySelector("#completed-count"),
-  suspectList: document.querySelector("#suspect-list"),
+  personList: document.querySelector("#person-list"),
+  evidenceList: document.querySelector("#evidence-list"),
+  evidencePerson: document.querySelector("#evidence-person"),
   feedbackKicker: document.querySelector("#feedback-kicker"),
   feedbackCopy: document.querySelector("#feedback-copy"),
   hintCopy: document.querySelector("#hint-copy"),
+  cause: document.querySelector("#forensic-cause"),
+  attackWindow: document.querySelector("#attack-window"),
+  survival: document.querySelector("#survival-note"),
+  finding: document.querySelector("#forensic-finding"),
   undoButton: document.querySelector("#undo-button"),
   clearButton: document.querySelector("#clear-button"),
   resetButton: document.querySelector("#reset-button"),
+  waitButton: document.querySelector("#wait-button"),
   checkButton: document.querySelector("#check-button"),
   hintButton: document.querySelector("#hint-button"),
   rulesButton: document.querySelector("#rules-button"),
@@ -56,6 +61,8 @@ const elements = {
   resultCopy: document.querySelector("#result-copy"),
   killerInitials: document.querySelector("#killer-initials"),
   killerName: document.querySelector("#killer-name"),
+  encounterTime: document.querySelector("#encounter-time"),
+  encounterRoom: document.querySelector("#encounter-room"),
   toast: document.querySelector("#toast")
 };
 
@@ -64,15 +71,6 @@ const roomFirstCell = new Map();
 for (const room of hotelCase.rooms) {
   roomFirstCell.set(room.id, Math.min(...room.cells));
   for (const cell of room.cells) roomByCell.set(cell, room);
-}
-
-const markersByCell = new Map();
-for (const suspect of hotelCase.suspects) {
-  for (const marker of suspect.markers ?? []) {
-    const markers = markersByCell.get(marker.cell) ?? [];
-    markers.push(marker);
-    markersByCell.set(marker.cell, markers);
-  }
 }
 
 const objectByCell = new Map(hotelCase.objects.map((object) => [object.cell, object]));
@@ -85,10 +83,9 @@ for (const passage of hotelCase.passages) {
   passages.push({ passage, side: horizontal ? "right" : "bottom" });
   passagesByCell.set(anchor, passages);
 }
-const walkableCount = getWalkableCells(hotelCase).length;
 
 let paths = loadPaths();
-let selectedSuspectId = hotelCase.suspects[0].id;
+let selectedPersonId = hotelCase.people[0].id;
 let history = [];
 let hintIndex = 0;
 let dragging = false;
@@ -103,9 +100,16 @@ function clonePaths(value = paths) {
 function loadPaths() {
   try {
     const stored = JSON.parse(localStorage.getItem(storageKey));
-    const validShape = hotelCase.suspects.every(
-      (suspect) => Array.isArray(stored?.[suspect.id]) && stored[suspect.id][0] === suspect.start,
-    );
+    const validShape = hotelCase.people.every((person) => {
+      const path = stored?.[person.id];
+      const start = getStartEvidence(person);
+      return (
+        Array.isArray(path) &&
+        path[0] === start?.cell &&
+        path.length <= hotelCase.timeline.endOffset + 1 &&
+        validateTimeline(hotelCase, person, path, { requireComplete: false }).valid
+      );
+    });
     if (validShape) return stored;
   } catch {
     localStorage.removeItem(storageKey);
@@ -132,10 +136,11 @@ function setFeedback(kicker, copy) {
 function commit(nextPaths) {
   if (pathsEqual(paths, nextPaths)) return false;
   history.push(clonePaths());
-  if (history.length > 100) history.shift();
+  if (history.length > 120) history.shift();
   paths = nextPaths;
   solved = false;
   localStorage.removeItem(solvedKey);
+  savePaths();
   render();
   return true;
 }
@@ -165,33 +170,52 @@ function createFloorObjectMarker(object) {
   return marker;
 }
 
-function createSceneMarker(evidence) {
+function evidenceTimeLabel(event) {
+  if (event.type === "trace") {
+    return `${formatCaseTime(hotelCase, event.window[0])}–${formatCaseTime(hotelCase, event.window[1])}`;
+  }
+  return formatCaseTime(hotelCase, event.at);
+}
+
+function selectedEvidenceByCell(person) {
+  const map = new Map();
+  for (const event of person.evidence.filter((item) => item.type !== "edge")) {
+    const entries = map.get(event.cell) ?? [];
+    entries.push(event);
+    map.set(event.cell, entries);
+  }
+  return map;
+}
+
+function createEvidenceMarker(event, path) {
+  const state = getEvidenceState(event, path);
   const marker = document.createElement("span");
-  marker.className = `scene-object ${evidence.type}`;
-  marker.title = evidence.label;
-  marker.innerHTML = `${floorObjectIcons[evidence.type]}<small>${evidence.shortLabel}</small>`;
+  marker.className = `clue-pin clue-${event.type} is-${state}`;
+  marker.title = `${event.title} — ${event.text}`;
+  marker.innerHTML = `<b>${event.code}</b><small>${evidenceTimeLabel(event)}</small>`;
   return marker;
 }
 
 function renderGridCells() {
-  const occupancy = getOccupancy(paths);
-  const endpointByCell = new Map();
-  for (const suspect of hotelCase.suspects) {
-    endpointByCell.set(suspect.start, { suspect, type: "start" });
-    endpointByCell.set(suspect.end, { suspect, type: "end" });
-  }
+  const person = getPerson(hotelCase, selectedPersonId);
+  const path = paths[selectedPersonId];
+  elements.grid.style.setProperty("--selected-color", person.color);
+  document.documentElement.style.setProperty("--selected-color", person.color);
+  const evidenceByCell = selectedEvidenceByCell(person);
+  const edgeEvidence = new Map(
+    person.evidence
+      .filter((event) => event.type === "edge")
+      .map((event) => [edgeKey(...event.cells), event]),
+  );
 
   elements.cells.innerHTML = "";
   for (let cell = 0; cell < hotelCase.size ** 2; cell += 1) {
     const room = roomByCell.get(cell);
     const floorObject = objectByCell.get(cell);
-    const ownerId = occupancy.get(cell);
-    const owner = ownerId ? getSuspect(hotelCase, ownerId) : null;
     const cellElement = document.createElement("div");
-    cellElement.className = `cell ${roomEdgeClasses(cell)}${owner ? " is-used" : ""}${floorObject?.blocking ? " is-blocked" : ""}`;
+    cellElement.className = `cell ${roomEdgeClasses(cell)}${floorObject?.blocking ? " is-blocked" : ""}`;
     cellElement.dataset.cell = String(cell);
     cellElement.style.setProperty("--room-tone", room.tone);
-    if (owner) cellElement.style.setProperty("--trail-color", owner.color);
 
     const content = document.createElement("div");
     content.className = "cell-content";
@@ -204,58 +228,22 @@ function renderGridCells() {
     }
 
     for (const { passage, side } of passagesByCell.get(cell) ?? []) {
+      const clue = edgeEvidence.get(edgeKey(...passage.cells));
       const marker = document.createElement("span");
-      marker.className = `passage passage-${side} passage-${passage.type}`;
-      marker.title = passage.label;
+      marker.className = `passage passage-${side} passage-${passage.type}${clue ? ` has-clue is-${getEvidenceState(clue, path)}` : ""}`;
+      marker.title = clue ? `${passage.label}: ${clue.text}` : passage.label;
       if (passage.code) marker.innerHTML = `<b>${passage.code}</b>`;
+      if (clue) {
+        const tag = document.createElement("span");
+        tag.className = "passage-clue-tag";
+        tag.innerHTML = `<b>${clue.code}</b><small>${evidenceTimeLabel(clue)}</small>`;
+        marker.append(tag);
+      }
       content.append(marker);
     }
 
     if (floorObject) content.append(createFloorObjectMarker(floorObject));
-
-    const endpoint = endpointByCell.get(cell);
-    if (endpoint) {
-      const isSelected = endpoint.suspect.id === selectedSuspectId;
-      const isStart = endpoint.type === "start";
-      const marker = document.createElement("span");
-      marker.className = `endpoint ${endpoint.type}${isSelected ? " is-selected" : ""}`;
-      marker.style.setProperty("--suspect-color", endpoint.suspect.color);
-      marker.dataset.step = isStart ? "S" : "E";
-      marker.textContent = endpoint.suspect.initials;
-      marker.title = `${endpoint.suspect.name} — ${isStart ? "start at 21:10" : "end at 21:25"}`;
-      marker.setAttribute("aria-label", marker.title);
-
-      if (isSelected) {
-        const col = cell % hotelCase.size;
-        const otherCell = isStart ? endpoint.suspect.end : endpoint.suspect.start;
-        const otherCol = otherCell % hotelCase.size;
-        const sameRow = Math.floor(cell / hotelCase.size) === Math.floor(otherCell / hotelCase.size);
-        if (sameRow && Math.abs(col - otherCol) === 1) {
-          marker.classList.add(isStart ? "callout-up" : "callout-down");
-        } else {
-          marker.classList.add(col >= hotelCase.size - 2 ? "callout-left" : "callout-right");
-        }
-        const callout = document.createElement("span");
-        callout.className = "endpoint-callout";
-        callout.setAttribute("aria-hidden", "true");
-        callout.innerHTML = `<strong>${isStart ? "Start" : "End"}</strong><small>${isStart ? "21:10" : "21:25"}</small>`;
-        marker.append(callout);
-        cellElement.classList.add("has-selected-endpoint");
-      }
-
-      content.append(marker);
-    }
-
-    for (const markerData of markersByCell.get(cell) ?? []) {
-      const marker = document.createElement("span");
-      marker.className = "evidence-marker";
-      marker.textContent = markerData.shortLabel;
-      marker.title = markerData.label;
-      content.append(marker);
-    }
-
-    if (cell === hotelCase.evidence.weapon.cell) content.append(createSceneMarker(hotelCase.evidence.weapon));
-    if (cell === hotelCase.evidence.victim.cell) content.append(createSceneMarker(hotelCase.evidence.victim));
+    for (const event of evidenceByCell.get(cell) ?? []) content.append(createEvidenceMarker(event, path));
 
     cellElement.append(content);
     elements.cells.append(cellElement);
@@ -268,102 +256,146 @@ function svgElement(name, attributes) {
   return element;
 }
 
+function cellCoordinates(cell) {
+  return [(cell % hotelCase.size) * 100 + 50, Math.floor(cell / hotelCase.size) * 100 + 50];
+}
+
 function cellPoint(cell) {
-  return `${(cell % hotelCase.size) * 100 + 50},${Math.floor(cell / hotelCase.size) * 100 + 50}`;
+  return cellCoordinates(cell).join(",");
 }
 
 function renderRoutes() {
   elements.routeLayer.innerHTML = "";
-  const ordered = [...hotelCase.suspects].sort((left, right) => {
-    if (left.id === selectedSuspectId) return 1;
-    if (right.id === selectedSuspectId) return -1;
+  const ordered = [...hotelCase.people].sort((left, right) => {
+    if (left.id === selectedPersonId) return 1;
+    if (right.id === selectedPersonId) return -1;
     return 0;
   });
 
-  for (const suspect of ordered) {
-    const path = paths[suspect.id];
+  for (const person of ordered) {
+    const path = paths[person.id];
     if (path.length < 2) continue;
+    const selected = person.id === selectedPersonId;
     const points = path.map(cellPoint).join(" ");
     elements.routeLayer.append(
-      svgElement("polyline", { points, class: "trail-shadow" }),
+      svgElement("polyline", { points, class: `trail-shadow${selected ? " selected" : ""}` }),
       svgElement("polyline", {
         points,
-        class: `trail-line${suspect.id === selectedSuspectId ? " selected" : ""}`,
-        stroke: suspect.color
+        class: `trail-line${selected ? " selected" : ""}`,
+        stroke: person.color
       }),
     );
-    const tail = path.at(-1);
-    if (tail !== suspect.end) {
-      const [cx, cy] = cellPoint(tail).split(",");
-      elements.routeLayer.append(
-        svgElement("circle", { cx, cy, r: 10, fill: suspect.color, class: "trail-node" }),
-      );
+
+    if (selected) {
+      path.forEach((cell, offset) => {
+        const [cx, cy] = cellCoordinates(cell);
+        if (offset > 0 && path[offset - 1] === cell) {
+          elements.routeLayer.append(
+            svgElement("circle", { cx, cy, r: 14 + offset, class: "wait-ring", stroke: person.color }),
+          );
+        } else {
+          elements.routeLayer.append(svgElement("circle", { cx, cy, r: 4.5, class: "minute-node", fill: person.color }));
+        }
+      });
     }
+
+    const [cx, cy] = cellCoordinates(path.at(-1));
+    elements.routeLayer.append(
+      svgElement("circle", {
+        cx,
+        cy,
+        r: selected ? 13 : 8,
+        class: `trail-tail${selected ? " selected" : ""}`,
+        fill: person.color
+      }),
+    );
   }
 }
 
-function renderSuspects() {
-  elements.suspectList.innerHTML = "";
+function renderPeople() {
+  elements.personList.innerHTML = "";
   let completeCount = 0;
 
-  for (const suspect of hotelCase.suspects) {
-    const path = paths[suspect.id];
-    const clueIsSatisfied = clueSatisfied(suspect, path);
-    const complete = routeComplete(suspect, path);
+  for (const person of hotelCase.people) {
+    const path = paths[person.id];
+    const progress = evidenceProgress(person, path);
+    const complete = timelineComplete(hotelCase, person, path);
     if (complete) completeCount += 1;
+
     const card = document.createElement("button");
     card.type = "button";
-    card.className = `suspect-card${suspect.id === selectedSuspectId ? " selected" : ""}`;
-    card.style.setProperty("--suspect-color", suspect.color);
-    card.setAttribute("aria-pressed", String(suspect.id === selectedSuspectId));
+    card.className = `person-card${person.id === selectedPersonId ? " selected" : ""}${person.role === "victim" ? " victim-card" : ""}`;
+    card.style.setProperty("--person-color", person.color);
+    card.setAttribute("aria-pressed", String(person.id === selectedPersonId));
     card.innerHTML = `
-      <span class="suspect-avatar">${suspect.initials}</span>
-      <span class="suspect-copy">
-        <span class="suspect-name-row">
-          <strong>${suspect.name}</strong>
-          <i class="clue-state${clueIsSatisfied ? " satisfied" : ""}" aria-label="${clueIsSatisfied ? "Evidence satisfied" : "Evidence not yet satisfied"}"></i>
-        </span>
-        <p>${suspect.clue}</p>
-        <span class="suspect-timeline" aria-label="Start at 21:10 and end at 21:25">
-          <span><i class="timeline-start"></i>Start 21:10</span>
-          <b aria-hidden="true">→</b>
-          <span><i class="timeline-end"></i>End 21:25</span>
-        </span>
+      <span class="person-avatar">${person.initials}</span>
+      <span class="person-copy">
+        <span class="person-role">${person.role === "victim" ? "Victim timeline" : "Suspect"}</span>
+        <strong>${person.name}</strong>
+        <small>${progress.satisfied} of ${progress.total} records aligned</small>
       </span>
-      <span class="route-meter${complete ? " complete" : ""}">
-        <strong>${path.length} / ${suspect.length}</strong>
-        <span>${complete ? "Complete" : "Tiles"}</span>
+      <span class="timeline-state${complete ? " complete" : progress.missed ? " conflict" : ""}">
+        <b>${complete ? "Verified" : formatCaseTime(hotelCase, path.length - 1)}</b>
+        <small>${complete ? "Timeline" : "Current time"}</small>
       </span>
     `;
     card.addEventListener("click", () => {
-      selectedSuspectId = suspect.id;
+      selectedPersonId = person.id;
       render();
       elements.grid.focus({ preventScroll: true });
     });
-    elements.suspectList.append(card);
+    elements.personList.append(card);
   }
 
-  elements.completedCount.textContent = `${completeCount} / ${hotelCase.suspects.length} complete`;
+  elements.completedCount.textContent = `${completeCount} / ${hotelCase.people.length} verified`;
+}
+
+function renderEvidenceList() {
+  const person = getPerson(hotelCase, selectedPersonId);
+  const path = paths[selectedPersonId];
+  elements.evidencePerson.textContent = person.name;
+  elements.evidenceList.innerHTML = "";
+
+  for (const event of person.evidence) {
+    const state = getEvidenceState(event, path);
+    const item = document.createElement("li");
+    item.className = `evidence-record is-${state}`;
+    item.innerHTML = `
+      <span class="record-code">${event.code}</span>
+      <span>
+        <small>${evidenceTimeLabel(event)} · ${event.type === "trace" ? "Physical trace" : event.type === "edge" ? "Access record" : "Timed sighting"}</small>
+        <strong>${event.title}</strong>
+        <p>${event.text}</p>
+      </span>
+      <i aria-label="${state}"></i>
+    `;
+    elements.evidenceList.append(item);
+  }
 }
 
 function renderProgress() {
-  const occupancy = getOccupancy(paths);
-  elements.coveredCount.textContent = String(occupancy.size);
-  elements.tileCount.textContent = String(walkableCount);
-  elements.undoButton.disabled = history.length === 0;
+  const person = getPerson(hotelCase, selectedPersonId);
+  const path = paths[selectedPersonId];
+  const currentOffset = path.length - 1;
+  const complete = timelineComplete(hotelCase, person, path);
+  const completeCount = hotelCase.people.filter((entry) => timelineComplete(hotelCase, entry, paths[entry.id])).length;
 
-  const suspect = getSuspect(hotelCase, selectedSuspectId);
-  const path = paths[selectedSuspectId];
+  elements.selectedPersonName.textContent = person.name;
+  elements.currentTime.textContent = formatCaseTime(hotelCase, currentOffset);
+  elements.undoButton.disabled = history.length === 0;
+  elements.waitButton.disabled = path.length >= hotelCase.timeline.endOffset + 1;
+  elements.clearButton.disabled = path.length <= 1;
+  elements.checkButton.textContent = completeCount === hotelCase.people.length ? "Reveal deduction" : "Verify reconstruction";
+
   if (solved) {
-    setFeedback("Case closed", "Every trace is accounted for. Select a suspect to review the reconstructed route.");
-  } else if (path.at(-1) === suspect.end && path.length < suspect.length) {
-    setFeedback("Route too short", `${suspect.name} reached END 21:25 too early. The trail needs ${suspect.length} tiles.`);
-  } else if (path.length === suspect.length && path.at(-1) !== suspect.end) {
-    setFeedback("Wrong final tile", `${suspect.name} must finish on the outlined END 21:25 sighting marker.`);
+    setFeedback("Case closed", "The six timelines are locked. Select any person to review how the deduction was made.");
+  } else if (complete) {
+    setFeedback("Timeline verified", `${person.name}'s evidence is internally consistent. Continue with another timeline.`);
   } else {
+    const progress = evidenceProgress(person, path);
     setFeedback(
-      "Selected trail",
-      `${suspect.name}: filled START 21:10 → outlined END 21:25 · ${path.length} of ${suspect.length} tiles assigned.`,
+      `${person.name} · ${formatCaseTime(hotelCase, currentOffset)}`,
+      `${progress.satisfied} of ${progress.total} records align. Draw to an adjacent tile, or wait one minute in place.`,
     );
   }
 }
@@ -371,247 +403,187 @@ function renderProgress() {
 function render() {
   renderGridCells();
   renderRoutes();
-  renderSuspects();
+  renderPeople();
+  renderEvidenceList();
   renderProgress();
-  savePaths();
 }
 
-function applyCell(cell, quiet = false) {
-  const suspect = getSuspect(hotelCase, selectedSuspectId);
-  const currentPath = paths[selectedSuspectId];
-  const existingIndex = currentPath.indexOf(cell);
+function truncateToCell(cell) {
+  const path = paths[selectedPersonId];
+  const index = path.lastIndexOf(cell);
+  if (index < 0 || index === path.length - 1) return false;
+  const nextPaths = clonePaths();
+  nextPaths[selectedPersonId] = path.slice(0, index + 1);
+  return commit(nextPaths);
+}
 
-  if (existingIndex >= 0) {
-    if (existingIndex === currentPath.length - 1) return false;
-    const nextPaths = clonePaths();
-    nextPaths[selectedSuspectId] = currentPath.slice(0, existingIndex + 1);
-    return commit(nextPaths);
-  }
+function applyMove(cell, { wait = false } = {}) {
+  const person = getPerson(hotelCase, selectedPersonId);
+  const path = paths[selectedPersonId];
 
-  const tail = currentPath.at(-1);
-  if (!isAdjacent(tail, cell, hotelCase.size)) {
-    if (!quiet) showToast("Continue from the end of the selected trail, one tile at a time.");
+  if (!wait && path.includes(cell)) return truncateToCell(cell);
+  if (!wait && cell === path.at(-1)) {
+    showToast("Use Wait 1 min to remain on this tile.");
     return false;
   }
 
-  if (!canMove(hotelCase, tail, cell)) {
-    const blockingObject = getBlockingObject(hotelCase, cell);
-    const kicker = blockingObject ? "Blocked tile" : "Solid wall";
-    const message = blockingObject
-      ? `${blockingObject.label} occupies that floor tile.`
-      : "You can change rooms only through a marked door, gate or hatch.";
-    setFeedback(kicker, message);
-    if (!quiet) showToast(message);
-    return false;
-  }
-
-  const endpointOwner = getEndpointOwner(hotelCase, cell);
-  if (endpointOwner && endpointOwner !== suspect.id) {
-    if (!quiet) showToast("That tile is another suspect’s confirmed sighting.");
-    return false;
-  }
-
-  const occupancy = getOccupancy(paths);
-  const occupiedBy = occupancy.get(cell);
-  if (occupiedBy && occupiedBy !== suspect.id) {
-    if (!quiet) showToast(`That trace already belongs to ${getSuspect(hotelCase, occupiedBy).name}.`);
-    return false;
-  }
-
-  if (tail === suspect.end || currentPath.length >= suspect.length) {
-    if (!quiet) showToast(`${suspect.name} has no trail tiles remaining.`);
-    return false;
-  }
-
-  const nextLength = currentPath.length + 1;
-  if (cell === suspect.end && nextLength !== suspect.length) {
-    if (!quiet) showToast(`The outlined sighting must be tile ${suspect.length} of ${suspect.name}’s route.`);
-    return false;
-  }
-
-  if (nextLength === suspect.length && cell !== suspect.end) {
-    if (!quiet) showToast(`${suspect.name}’s final tile must be the outlined sighting marker.`);
+  const nextCell = wait ? path.at(-1) : cell;
+  const errors = getNextMoveErrors(hotelCase, person, path, nextCell);
+  if (errors.length > 0) {
+    setFeedback("Timeline conflict", errors[0]);
+    showToast(errors[0]);
     return false;
   }
 
   const nextPaths = clonePaths();
-  nextPaths[selectedSuspectId] = [...currentPath, cell];
+  nextPaths[selectedPersonId] = [...path, nextCell];
   return commit(nextPaths);
 }
 
-function cellFromPointer(event) {
-  const bounds = elements.grid.getBoundingClientRect();
-  const x = Math.min(Math.max(event.clientX - bounds.left, 0), bounds.width - 0.01);
-  const y = Math.min(Math.max(event.clientY - bounds.top, 0), bounds.height - 0.01);
-  const col = Math.floor((x / bounds.width) * hotelCase.size);
-  const row = Math.floor((y / bounds.height) * hotelCase.size);
-  return row * hotelCase.size + col;
+function cellFromEvent(event) {
+  const cellElement = event.target.closest?.(".cell");
+  return cellElement ? Number(cellElement.dataset.cell) : null;
 }
 
-function selectEndpoint(cell) {
-  const ownerId = getEndpointOwner(hotelCase, cell);
-  if (!ownerId) return false;
-  selectedSuspectId = ownerId;
-  render();
-  return true;
-}
-
-elements.grid.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0 && event.pointerType === "mouse") return;
+function beginDrawing(event) {
+  const cell = cellFromEvent(event);
+  if (cell === null || objectByCell.get(cell)?.blocking) return;
   event.preventDefault();
-  elements.grid.focus({ preventScroll: true });
-  const cell = cellFromPointer(event);
-  const ownerId = getEndpointOwner(hotelCase, cell);
-  if (ownerId && ownerId !== selectedSuspectId) selectEndpoint(cell);
-  const selectedPath = paths[selectedSuspectId];
-  if (!ownerId || cell === selectedPath.at(-1) || cell === getSuspect(hotelCase, selectedSuspectId).end) {
-    applyCell(cell, true);
-  }
   dragging = true;
   lastPointerCell = cell;
   elements.grid.setPointerCapture?.(event.pointerId);
-});
+  applyMove(cell);
+}
 
-elements.grid.addEventListener("pointermove", (event) => {
+function continueDrawing(event) {
   if (!dragging) return;
-  event.preventDefault();
-  const cell = cellFromPointer(event);
-  if (cell === lastPointerCell) return;
+  const cell = cellFromEvent(event);
+  if (cell === null || cell === lastPointerCell || objectByCell.get(cell)?.blocking) return;
   lastPointerCell = cell;
-  applyCell(cell, true);
-});
+  applyMove(cell);
+}
 
-function stopDragging() {
+function stopDrawing() {
   dragging = false;
   lastPointerCell = null;
 }
 
-elements.grid.addEventListener("pointerup", stopDragging);
-elements.grid.addEventListener("pointercancel", stopDragging);
-elements.grid.addEventListener("lostpointercapture", stopDragging);
-
-elements.grid.addEventListener("keydown", (event) => {
-  const path = paths[selectedSuspectId];
-  const tail = path.at(-1);
-  const row = Math.floor(tail / hotelCase.size);
-  const col = tail % hotelCase.size;
-  const targets = {
-    ArrowUp: row > 0 ? tail - hotelCase.size : null,
-    ArrowRight: col < hotelCase.size - 1 ? tail + 1 : null,
-    ArrowDown: row < hotelCase.size - 1 ? tail + hotelCase.size : null,
-    ArrowLeft: col > 0 ? tail - 1 : null
-  };
-
-  if (event.key in targets) {
-    event.preventDefault();
-    if (targets[event.key] !== null) applyCell(targets[event.key]);
-  }
-
-  if ((event.key === "Backspace" || event.key === "Delete") && path.length > 1) {
-    event.preventDefault();
-    const nextPaths = clonePaths();
-    nextPaths[selectedSuspectId] = path.slice(0, -1);
-    commit(nextPaths);
-  }
-});
-
-elements.undoButton.addEventListener("click", () => {
-  if (history.length === 0) return;
-  paths = history.pop();
+function undo() {
+  const previous = history.pop();
+  if (!previous) return;
+  paths = previous;
   solved = false;
   localStorage.removeItem(solvedKey);
+  savePaths();
   render();
-});
+}
 
-elements.clearButton.addEventListener("click", () => {
-  const suspect = getSuspect(hotelCase, selectedSuspectId);
+function clearSelectedTimeline() {
+  const person = getPerson(hotelCase, selectedPersonId);
+  const start = getStartEvidence(person);
   const nextPaths = clonePaths();
-  nextPaths[selectedSuspectId] = [suspect.start];
-  if (commit(nextPaths)) showToast(`${suspect.name}’s trail was cleared.`);
-});
+  nextPaths[selectedPersonId] = [start.cell];
+  commit(nextPaths);
+}
 
-elements.resetButton.addEventListener("click", () => {
-  if (!window.confirm("Reset every reconstructed trail in this case?")) return;
+function resetCase() {
+  if (!window.confirm("Reset every reconstructed timeline in this case?")) return;
   history.push(clonePaths());
   paths = createInitialPaths(hotelCase);
   solved = false;
-  hintIndex = 0;
-  elements.hintCopy.textContent = "Hints explain a deduction without filling the route for you.";
   localStorage.removeItem(solvedKey);
+  savePaths();
   render();
-});
+  showToast("All timelines reset.");
+}
 
-elements.hintButton.addEventListener("click", () => {
-  const hint = hotelCase.hints[hintIndex % hotelCase.hints.length];
-  hintIndex += 1;
-  elements.hintCopy.textContent = hint;
-  elements.hintButton.textContent = hintIndex >= hotelCase.hints.length ? "Review hints" : "Next hint";
-});
-
-elements.checkButton.addEventListener("click", () => {
-  const result = validateBoard(hotelCase, paths);
+function checkReconstruction() {
+  const result = validateReconstruction(hotelCase, paths);
   if (!result.valid) {
-    const incomplete = hotelCase.suspects.find((suspect) => !routeComplete(suspect, paths[suspect.id]));
-    if (incomplete) selectedSuspectId = incomplete.id;
+    const incomplete = hotelCase.people.find((person) => !timelineComplete(hotelCase, person, paths[person.id]));
+    if (incomplete) selectedPersonId = incomplete.id;
     render();
-    const remaining = walkableCount - getOccupancy(paths).size;
-    showToast(remaining > 0 ? `${remaining} open floor tiles are still unassigned.` : result.errors[0]);
-    return;
-  }
-
-  if (!pathsEqual(paths, hotelCase.solution)) {
-    showToast("These routes satisfy the visible evidence but do not match the verified case solution.");
+    const completeCount = hotelCase.people.filter((person) => timelineComplete(hotelCase, person, paths[person.id])).length;
+    const message = incomplete
+      ? `${completeCount} of 6 timelines are verified. ${result.errors[0]}`
+      : result.errors[0];
+    setFeedback("Reconstruction incomplete", message);
+    showToast("The deduction stays sealed until all six timelines verify.");
     return;
   }
 
   solved = true;
   localStorage.setItem(solvedKey, "true");
-  selectedSuspectId = result.killer.id;
+  const room = hotelCase.rooms.find((entry) => entry.id === getRoomId(hotelCase, result.encounter.cell));
+  elements.killerInitials.textContent = result.killer.initials;
+  elements.resultDialog.style.setProperty("--killer-color", result.killer.color);
+  elements.killerName.textContent = result.killer.name;
+  elements.resultTitle.textContent = "The minute tells the truth.";
+  elements.resultCopy.textContent = `${result.killer.name} and Adrian occupied the same ${room?.name ?? "hotel"} tile at ${result.encounter.time}. Every other suspect crossed Adrian's route at a different minute.`;
+  elements.encounterTime.textContent = result.encounter.time;
+  elements.encounterRoom.textContent = room?.name ?? "Floor plan";
   render();
-  showResult(result.killer);
-});
-
-function showResult(killer) {
-  elements.resultDialog.style.setProperty("--killer-color", killer.color);
-  elements.killerInitials.textContent = killer.initials;
-  elements.killerName.textContent = killer.name;
-  elements.resultCopy.textContent = `${killer.name} took the letter opener from the service wing, crossed staff hatch H and reached ${hotelCase.victimName} in the Grand Hall before the cameras returned.`;
   elements.resultDialog.showModal();
 }
 
-elements.rulesButton.addEventListener("click", () => elements.rulesDialog.showModal());
-elements.rulesDialog.addEventListener("close", () => localStorage.setItem("alibi-lines:rules-seen", "true"));
-for (const button of document.querySelectorAll("[data-close-dialog]")) {
-  button.addEventListener("click", () => {
-    const dialog = document.querySelector(`#${button.dataset.closeDialog}`);
-    dialog.close();
-    if (dialog === elements.rulesDialog) localStorage.setItem("alibi-lines:rules-seen", "true");
-  });
+function revealHint() {
+  elements.hintCopy.textContent = hotelCase.hints[hintIndex % hotelCase.hints.length];
+  hintIndex += 1;
 }
 
+function handleGridKeydown(event) {
+  const movement = {
+    ArrowUp: -hotelCase.size,
+    ArrowRight: 1,
+    ArrowDown: hotelCase.size,
+    ArrowLeft: -1
+  };
+  if (event.key.toLowerCase() === "w" || event.key === " ") {
+    event.preventDefault();
+    applyMove(paths[selectedPersonId].at(-1), { wait: true });
+    return;
+  }
+  if (!(event.key in movement)) return;
+  event.preventDefault();
+  applyMove(paths[selectedPersonId].at(-1) + movement[event.key]);
+}
+
+function initialiseCaseFile() {
+  elements.caseNumber.textContent = hotelCase.number;
+  elements.caseTitle.textContent = hotelCase.title;
+  elements.timeWindow.textContent = hotelCase.timeline.label;
+  elements.difficulty.textContent = hotelCase.difficulty;
+  elements.briefing.textContent = hotelCase.briefing;
+  elements.objective.textContent = hotelCase.objective;
+  elements.cause.textContent = hotelCase.forensics.cause;
+  elements.attackWindow.textContent = hotelCase.forensics.attackWindowLabel;
+  elements.survival.textContent = hotelCase.forensics.survival;
+  elements.finding.textContent = hotelCase.forensics.finding;
+  elements.hintCopy.textContent = "Hints explain a deduction without revealing a complete route.";
+}
+
+elements.grid.addEventListener("pointerdown", beginDrawing);
+elements.grid.addEventListener("pointerover", continueDrawing);
+elements.grid.addEventListener("pointerup", stopDrawing);
+elements.grid.addEventListener("pointercancel", stopDrawing);
+elements.grid.addEventListener("lostpointercapture", stopDrawing);
+elements.grid.addEventListener("keydown", handleGridKeydown);
+elements.undoButton.addEventListener("click", undo);
+elements.clearButton.addEventListener("click", clearSelectedTimeline);
+elements.resetButton.addEventListener("click", resetCase);
+elements.waitButton.addEventListener("click", () => applyMove(paths[selectedPersonId].at(-1), { wait: true }));
+elements.checkButton.addEventListener("click", checkReconstruction);
+elements.hintButton.addEventListener("click", revealHint);
+elements.rulesButton.addEventListener("click", () => elements.rulesDialog.showModal());
+
+for (const button of document.querySelectorAll("[data-close-dialog]")) {
+  button.addEventListener("click", () => document.querySelector(`#${button.dataset.closeDialog}`)?.close());
+}
 for (const dialog of document.querySelectorAll("dialog")) {
   dialog.addEventListener("click", (event) => {
-    const bounds = dialog.getBoundingClientRect();
-    const outside =
-      event.clientX < bounds.left ||
-      event.clientX > bounds.right ||
-      event.clientY < bounds.top ||
-      event.clientY > bounds.bottom;
-    if (outside) dialog.close();
+    if (event.target === dialog) dialog.close();
   });
 }
 
-elements.caseNumber.textContent = hotelCase.number;
-elements.caseTitle.textContent = hotelCase.title;
-elements.timeWindow.textContent = hotelCase.timeWindow;
-elements.difficulty.textContent = hotelCase.difficulty;
-elements.briefing.textContent = hotelCase.briefing;
-elements.objective.textContent = hotelCase.objective;
-elements.victimName.textContent = hotelCase.victimName;
-elements.grid.tabIndex = 0;
-
+initialiseCaseFile();
 render();
-
-if (localStorage.getItem("alibi-lines:rules-seen") !== "true") {
-  window.setTimeout(() => elements.rulesDialog.showModal(), 250);
-}

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#111923" />
     <meta
       name="description"
-      content="Alibi Lines is a route-deduction murder mystery. Reconstruct every suspect trail and expose the killer."
+      content="Alibi Lines is a timed route-deduction mystery. Reconstruct six overlapping timelines and expose the killer."
     />
     <title>Alibi Lines — Case 001</title>
     <link rel="stylesheet" href="./styles.css" />
@@ -15,13 +15,11 @@
     <div class="page-shell">
       <header class="site-header">
         <a class="brand" href="./" aria-label="Alibi Lines home">
-          <span class="brand-mark" aria-hidden="true">
-            <span></span><span></span><span></span>
-          </span>
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
           <span>Alibi Lines</span>
         </a>
         <div class="header-actions">
-          <span class="prototype-badge">Prototype</span>
+          <span class="prototype-badge">Prototype v3</span>
           <button class="icon-button" id="rules-button" type="button" aria-label="How to play">
             <span aria-hidden="true">?</span>
           </button>
@@ -36,7 +34,7 @@
           </div>
           <div class="case-meta">
             <div>
-              <span>Camera blackout</span>
+              <span>Evidence window</span>
               <strong id="time-window"></strong>
             </div>
             <div>
@@ -59,92 +57,108 @@
         </section>
 
         <div class="game-layout">
-          <section class="board-panel" aria-label="Blackthorn Hotel route board">
+          <section class="board-panel" aria-label="Blackthorn Hotel timeline board">
             <div class="board-toolbar">
               <div>
-                <span class="toolbar-label">Floor plan</span>
-                <strong><span id="covered-count">5</span> / <span id="tile-count">45</span> open tiles assigned</strong>
+                <span class="toolbar-label">Selected timeline</span>
+                <strong id="selected-person-name">Sara Bell</strong>
               </div>
-              <div class="toolbar-legend" aria-label="Timeline legend">
-                <span><i class="legend-start"></i><b>Start</b><small>21:10</small></span>
-                <span><i class="legend-end"></i><b>End</b><small>21:25</small></span>
+              <div class="clock-readout" aria-label="Current route time">
+                <span>Current time</span>
+                <strong id="current-time">21:10</strong>
+              </div>
+              <div class="toolbar-rules" aria-label="Timeline rules">
+                <span>1 move = 1 minute</span>
+                <span>Overlap allowed</span>
               </div>
             </div>
 
             <div class="floor-key" aria-label="Floor plan symbols">
               <span><i class="key-door"></i>Door</span>
-              <span><i class="key-gate"></i>Gate</span>
+              <span><i class="key-gate"></i>Gate or hatch</span>
               <span><i class="key-furniture"></i>Blocked furniture</span>
+              <span><i class="key-clue"></i>Selected evidence</span>
             </div>
 
             <div class="grid-frame">
-              <div id="game-grid" class="game-grid" role="application" aria-label="Route drawing grid">
+              <div id="game-grid" class="game-grid" role="application" tabindex="0" aria-label="Timed route drawing grid">
                 <div id="grid-cells" class="grid-cells"></div>
                 <svg id="route-layer" class="route-layer" viewBox="0 0 700 700" aria-hidden="true"></svg>
               </div>
             </div>
 
             <div class="board-feedback" aria-live="polite">
-              <span class="feedback-kicker" id="feedback-kicker">Selected trail</span>
-              <p id="feedback-copy">Choose a suspect. Their start and end sightings will be labeled on the board.</p>
+              <span class="feedback-kicker" id="feedback-kicker">Selected timeline</span>
+              <p id="feedback-copy">Use the timed evidence to reconstruct this route.</p>
             </div>
 
             <div class="board-actions">
               <div class="secondary-actions">
                 <button class="text-button" id="undo-button" type="button" disabled>Undo</button>
-                <button class="text-button" id="clear-button" type="button">Clear trail</button>
+                <button class="text-button" id="clear-button" type="button">Clear timeline</button>
                 <button class="text-button" id="reset-button" type="button">Reset case</button>
               </div>
-              <button class="primary-button" id="check-button" type="button">Check routes</button>
+              <div class="primary-actions">
+                <button class="wait-button" id="wait-button" type="button"><span>Pause</span> Wait 1 min</button>
+                <button class="primary-button" id="check-button" type="button">Verify reconstruction</button>
+              </div>
             </div>
           </section>
 
           <aside class="case-sidebar">
-            <section class="evidence-card">
+            <section class="forensic-card">
               <div class="section-heading">
                 <div>
-                  <p class="eyebrow">Forensic sequence</p>
-                  <h2>Weapon before victim</h2>
+                  <p class="eyebrow">Forensic report</p>
+                  <h2>Time, not a weapon</h2>
                 </div>
-                <span class="evidence-seal">Verified</span>
+                <span class="evidence-seal">Time critical</span>
               </div>
-              <div class="evidence-sequence">
-                <div class="evidence-item weapon-item">
-                  <span class="evidence-symbol">W</span>
-                  <div>
-                    <span>Missing weapon</span>
-                    <strong>Letter opener</strong>
-                  </div>
+              <div class="forensic-grid">
+                <div>
+                  <span>Cause</span>
+                  <strong id="forensic-cause"></strong>
                 </div>
-                <span class="sequence-arrow" aria-hidden="true">→</span>
-                <div class="evidence-item victim-item">
-                  <span class="evidence-symbol">V</span>
-                  <div>
-                    <span>Victim</span>
-                    <strong id="victim-name"></strong>
-                  </div>
+                <div>
+                  <span>Attack window</span>
+                  <strong id="attack-window"></strong>
                 </div>
               </div>
-              <p>The only trail crossing W and then V belongs to the killer.</p>
+              <p id="survival-note"></p>
+              <div class="forensic-note">
+                <span>Deduction standard</span>
+                <p id="forensic-finding"></p>
+              </div>
             </section>
 
-            <section class="suspect-section">
-              <div class="section-heading suspect-heading">
+            <section class="dossier-card">
+              <div class="section-heading dossier-heading">
                 <div>
-                  <p class="eyebrow">Trace evidence</p>
-                  <h2>Five suspects</h2>
+                  <p class="eyebrow">Evidence dossier</p>
+                  <h2 id="evidence-person">Sara Bell</h2>
                 </div>
-                <span id="completed-count">0 / 5 complete</span>
+                <span class="dossier-key"><i></i>Pin on map</span>
               </div>
-              <div id="suspect-list" class="suspect-list"></div>
+              <ol id="evidence-list" class="evidence-list"></ol>
+            </section>
+
+            <section class="people-section">
+              <div class="section-heading people-heading">
+                <div>
+                  <p class="eyebrow">Reconstruction</p>
+                  <h2>Six timelines</h2>
+                </div>
+                <span id="completed-count">0 / 6 verified</span>
+              </div>
+              <div id="person-list" class="person-list"></div>
             </section>
 
             <section class="hint-card">
               <div>
-                <span class="hint-label">Need a lead?</span>
-                <p id="hint-copy">Hints explain a deduction without filling the route for you.</p>
+                <h3>Need a lead?</h3>
+                <p id="hint-copy">Hints explain a deduction without revealing a complete route.</p>
               </div>
-              <button class="hint-button" id="hint-button" type="button">Reveal hint</button>
+              <button class="outline-button" id="hint-button" type="button">Reveal hint</button>
             </section>
           </aside>
         </div>
@@ -152,7 +166,7 @@
 
       <footer>
         <span>Alibi Lines</span>
-        <span>Case 001 · Prototype build</span>
+        <span>Case 001 · Timed-evidence prototype</span>
       </footer>
     </div>
 
@@ -163,20 +177,21 @@
       </div>
       <div class="modal-body">
         <p class="eyebrow">How to play</p>
-        <h2>Reconstruct the blackout.</h2>
+        <h2>Reconstruct six missing timelines.</h2>
         <p>
-          Every suspect was seen at 21:10 and again at 21:25. Connect their sightings and account for every open tile on the floor plan.
+          Cameras, access logs and physical traces establish where each person was at particular minutes. The route itself must explain every record.
         </p>
         <ol class="rule-list">
-          <li><span>1</span><p>Follow the two board labels: START 21:10 is filled; END 21:25 is outlined.</p></li>
-          <li><span>2</span><p>Move horizontally or vertically. Solid walls stop trails; change rooms only through a door, gate or hatch.</p></li>
-          <li><span>3</span><p>Furniture occupies its tile and cannot be crossed. Trails cannot overlap.</p></li>
-          <li><span>4</span><p>Use the exact route length shown on each card and assign all 45 open tiles.</p></li>
-          <li><span>5</span><p>Every evidence statement is true. Camera labels must be visited in the stated order.</p></li>
+          <li><span>1</span><p>Select a person. Only that person's evidence pins appear on the floor plan.</p></li>
+          <li><span>2</span><p>Draw orthogonally. Every move advances the clock by one minute; use Wait to remain in place for a minute.</p></li>
+          <li><span>3</span><p>Walls stop movement. Change rooms only through a marked door, gate or hatch, and never cross fixed furniture.</p></li>
+          <li><span>4</span><p>There is no route-length clue. The clock and the timestamps determine how far a valid timeline can travel.</p></li>
+          <li><span>5</span><p>Different people's routes may cross or overlap. A single timeline cannot return to a tile after leaving it.</p></li>
+          <li><span>6</span><p>Verify all five suspects and Adrian. The murderer remains sealed until every timeline is complete.</p></li>
         </ol>
         <div class="murder-rule">
           <span>Final deduction</span>
-          <p>The killer’s trail reaches the weapon tile before the victim tile.</p>
+          <p>Location is not enough. Only a same-tile, same-minute encounter inside the forensic window identifies the murderer.</p>
         </div>
       </div>
       <button class="primary-button modal-primary" data-close-dialog="rules-dialog" type="button">Open case file</button>
@@ -186,7 +201,7 @@
       <div class="result-stripe"></div>
       <div class="modal-body">
         <p class="eyebrow">Case closed</p>
-        <h2 id="result-title">The route tells the truth.</h2>
+        <h2 id="result-title">The minute tells the truth.</h2>
         <div class="killer-reveal">
           <span id="killer-initials"></span>
           <div>
@@ -196,12 +211,12 @@
         </div>
         <p id="result-copy"></p>
         <div class="result-stats">
-          <div><span>Board</span><strong>7 × 7</strong></div>
-          <div><span>Trails</span><strong>5 / 5</strong></div>
-          <div><span>Coverage</span><strong>45 / 45</strong></div>
+          <div><span>Timelines</span><strong>6 / 6</strong></div>
+          <div><span>Timed contact</span><strong id="encounter-time"></strong></div>
+          <div><span>Location</span><strong id="encounter-room"></strong></div>
         </div>
       </div>
-      <button class="primary-button modal-primary" data-close-dialog="result-dialog" type="button">Review solution</button>
+      <button class="primary-button modal-primary" data-close-dialog="result-dialog" type="button">Review reconstruction</button>
     </dialog>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>

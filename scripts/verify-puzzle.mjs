@@ -1,108 +1,119 @@
 import { hotelCase } from "../src/case.js";
-import { canMove, clueSatisfied, findKiller, getWalkableCells, pathsEqual } from "../src/game-logic.js";
+import {
+  canMove,
+  findKiller,
+  findTimedEncounters,
+  getNextMoveErrors,
+  getRoomId,
+  getWalkableCells,
+  pathsEqual,
+  timelineComplete,
+  validateReconstruction
+} from "../src/game-logic.js";
 
-const endpointOwner = new Map();
-for (const suspect of hotelCase.suspects) {
-  endpointOwner.set(suspect.start, suspect.id);
-  endpointOwner.set(suspect.end, suspect.id);
+const walkableCells = getWalkableCells(hotelCase);
+const neighborsByCell = new Map(
+  walkableCells.map((cell) => [cell, walkableCells.filter((candidate) => canMove(hotelCase, cell, candidate))]),
+);
+
+function canStillReachTimedPoint(person, path) {
+  const currentOffset = path.length - 1;
+  const currentCell = path.at(-1);
+  const row = Math.floor(currentCell / hotelCase.size);
+  const col = currentCell % hotelCase.size;
+
+  return person.evidence
+    .filter((event) => event.type === "point" && event.at > currentOffset)
+    .every((event) => {
+      const targetRow = Math.floor(event.cell / hotelCase.size);
+      const targetCol = event.cell % hotelCase.size;
+      const minimumMoves = Math.abs(row - targetRow) + Math.abs(col - targetCol);
+      return minimumMoves <= event.at - currentOffset;
+    });
 }
 
-function neighbors(cell) {
-  return getWalkableCells(hotelCase).filter((candidate) => canMove(hotelCase, cell, candidate));
-}
+function enumerateTimelines(person, limit = 10_000) {
+  const start = person.evidence.find((event) => event.type === "point" && event.at === 0)?.cell;
+  const path = [start];
+  const results = [];
 
-function enumeratePaths(suspect, applyClue) {
-  const paths = [];
-  const path = [suspect.start];
-  const visited = new Set(path);
-
-  function walk(cell) {
-    if (path.length === suspect.length) {
-      if (cell === suspect.end && (!applyClue || clueSatisfied(suspect, path))) paths.push([...path]);
+  function walk() {
+    if (results.length >= limit) return;
+    if (path.length === hotelCase.timeline.endOffset + 1) {
+      if (timelineComplete(hotelCase, person, path)) results.push([...path]);
       return;
     }
+    if (!canStillReachTimedPoint(person, path)) return;
 
-    const row = Math.floor(cell / hotelCase.size);
-    const col = cell % hotelCase.size;
-    const endRow = Math.floor(suspect.end / hotelCase.size);
-    const endCol = suspect.end % hotelCase.size;
-    const remainingMoves = suspect.length - path.length;
-    const distance = Math.abs(row - endRow) + Math.abs(col - endCol);
-    if (distance > remainingMoves || (remainingMoves - distance) % 2 !== 0) return;
-
-    for (const next of neighbors(cell)) {
-      if (visited.has(next)) continue;
-      const owner = endpointOwner.get(next);
-      if (owner && owner !== suspect.id) continue;
-      if (next === suspect.end && path.length !== suspect.length - 1) continue;
-      visited.add(next);
+    const current = path.at(-1);
+    for (const next of [current, ...neighborsByCell.get(current)]) {
+      if (getNextMoveErrors(hotelCase, person, path, next).length > 0) continue;
       path.push(next);
-      walk(next);
+      walk();
       path.pop();
-      visited.delete(next);
     }
   }
 
-  walk(suspect.start);
-  return paths;
+  walk();
+  return results;
 }
 
-function combineCandidates(candidates, limit, requireKiller) {
-  const orderedSuspects = [...hotelCase.suspects].sort(
-    (left, right) => candidates.get(left.id).length - candidates.get(right.id).length,
-  );
-  const occupied = new Set();
-  const selection = {};
-  const solutions = [];
+let failed = false;
+const candidates = new Map();
 
-  function combine(index) {
-    if (solutions.length >= limit) return;
-    if (index === orderedSuspects.length) {
-      if (occupied.size !== getWalkableCells(hotelCase).length) return;
-      if (requireKiller && !findKiller(hotelCase, selection)) return;
-      solutions.push(structuredClone(selection));
-      return;
-    }
-
-    const suspect = orderedSuspects[index];
-    for (const path of candidates.get(suspect.id)) {
-      if (path.some((cell) => occupied.has(cell))) continue;
-      for (const cell of path) occupied.add(cell);
-      selection[suspect.id] = path;
-      combine(index + 1);
-      delete selection[suspect.id];
-      for (const cell of path) occupied.delete(cell);
-    }
+for (const person of hotelCase.people) {
+  const routes = enumerateTimelines(person);
+  candidates.set(person.id, routes);
+  console.log(`${person.name}: ${routes.length} timeline${routes.length === 1 ? "" : "s"} satisfy all evidence`);
+  if (routes.length !== 1) {
+    console.error(`Expected exactly one evidenced timeline for ${person.name}.`);
+    failed = true;
+  } else if (!pathsEqual({ [person.id]: routes[0] }, { [person.id]: hotelCase.solution[person.id] })) {
+    console.error(`${person.name}'s unique timeline does not match the authored route.`);
+    failed = true;
   }
-
-  combine(0);
-  return solutions;
 }
 
-const rawCandidates = new Map();
-const constrainedCandidates = new Map();
-for (const suspect of hotelCase.suspects) {
-  const rawRoutes = enumeratePaths(suspect, false);
-  const constrainedRoutes = enumeratePaths(suspect, true);
-  rawCandidates.set(suspect.id, rawRoutes);
-  constrainedCandidates.set(suspect.id, constrainedRoutes);
-  console.log(`${suspect.name}: ${rawRoutes.length} floor-plan routes, ${constrainedRoutes.length} after evidence`);
+const reconstruction = validateReconstruction(hotelCase, hotelCase.solution);
+if (!reconstruction.valid) {
+  console.error(reconstruction.errors.join("\n"));
+  failed = true;
 }
 
-const rawSolutions = combineCandidates(rawCandidates, 3, false);
-const solutions = combineCandidates(constrainedCandidates, 2, true);
+const victimPath = hotelCase.solution[hotelCase.victimId];
+for (const person of hotelCase.people.filter((entry) => entry.role === "suspect")) {
+  const sharedCells = new Set(hotelCase.solution[person.id].filter((cell) => victimPath.includes(cell)));
+  if (sharedCells.size === 0) {
+    console.error(`${person.name} never crosses Adrian's spatial route.`);
+    failed = true;
+  }
+}
 
-if (rawSolutions.length !== 2) {
-  console.error(`Expected two floor-plan reconstructions before evidence, found ${rawSolutions.length}.`);
-  process.exitCode = 1;
-} else if (solutions.length !== 1) {
-  console.error(`Expected exactly one evidenced solution, found ${solutions.length === 2 ? "at least two" : solutions.length}.`);
-  process.exitCode = 1;
-} else if (!pathsEqual(solutions[0], hotelCase.solution)) {
-  console.error("The unique solver result does not match the authored solution.");
+const attackEncounters = findTimedEncounters(hotelCase, hotelCase.solution).filter((encounter) => encounter.inAttackWindow);
+if (attackEncounters.length !== 1 || attackEncounters[0].suspectId !== "marcus") {
+  console.error(`Expected one attack-window encounter belonging to Marcus; found ${attackEncounters.length}.`);
+  failed = true;
+}
+
+const killer = findKiller(hotelCase, hotelCase.solution);
+if (killer?.id !== "marcus") {
+  console.error("The completed reconstruction does not identify Marcus as the sole killer.");
+  failed = true;
+}
+
+for (const passage of hotelCase.passages) {
+  const [from, to] = passage.cells;
+  if (getRoomId(hotelCase, from) === getRoomId(hotelCase, to) || !canMove(hotelCase, from, to)) {
+    console.error(`Invalid architectural passage: ${passage.label}.`);
+    failed = true;
+  }
+}
+
+if (failed) {
   process.exitCode = 1;
 } else {
-  console.log("Verified: Nora’s camera order eliminates the second complete reconstruction.");
-  console.log("Verified: the evidenced case has exactly one complete solution.");
-  console.log(`Verified: ${findKiller(hotelCase, solutions[0]).name} is the only possible killer.`);
+  const encounter = attackEncounters[0];
+  console.log("Verified: all six timelines are individually unique, including legal waits.");
+  console.log("Verified: every suspect crosses Adrian's spatial route, so location alone cannot reveal the killer.");
+  console.log(`Verified: only ${killer.name} meets Adrian at ${encounter.time} in the ${hotelCase.forensics.attackWindowLabel} attack window.`);
 }

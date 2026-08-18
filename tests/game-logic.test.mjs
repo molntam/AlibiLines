@@ -4,15 +4,19 @@ import assert from "node:assert/strict";
 import { hotelCase } from "../src/case.js";
 import {
   canMove,
-  clueSatisfied,
   createInitialPaths,
+  evidenceSatisfied,
   findKiller,
+  findTimedEncounters,
+  formatCaseTime,
+  getNextMoveErrors,
   getRoomId,
-  getWalkableCells,
   isAdjacent,
   isBlocked,
   pathsEqual,
-  validateBoard
+  timelineComplete,
+  validateReconstruction,
+  validateTimeline
 } from "../src/game-logic.js";
 
 test("orthogonal movement is accepted and diagonal movement is rejected", () => {
@@ -29,48 +33,74 @@ test("room walls require a passage and furniture blocks movement", () => {
   assert.equal(canMove(hotelCase, 7, 8), false);
 });
 
-test("floor-plan data keeps passages and blocked objects valid", () => {
-  const endpointCells = new Set(hotelCase.suspects.flatMap((suspect) => [suspect.start, suspect.end]));
+test("floor-plan passages connect different rooms without touching blockers", () => {
   for (const passage of hotelCase.passages) {
     const [from, to] = passage.cells;
     assert.equal(isAdjacent(from, to, hotelCase.size), true, passage.label);
     assert.notEqual(getRoomId(hotelCase, from), getRoomId(hotelCase, to), passage.label);
     assert.equal(isBlocked(hotelCase, from) || isBlocked(hotelCase, to), false, passage.label);
   }
-  for (const object of hotelCase.objects) assert.equal(endpointCells.has(object.cell), false, object.label);
-  assert.equal(
-    hotelCase.suspects.reduce((total, suspect) => total + suspect.length, 0),
-    getWalkableCells(hotelCase).length,
-  );
 });
 
-test("initial paths contain only the confirmed starting sightings", () => {
+test("initial timelines contain only each person's first evidenced location", () => {
   const paths = createInitialPaths(hotelCase);
-  for (const suspect of hotelCase.suspects) assert.deepEqual(paths[suspect.id], [suspect.start]);
+  for (const person of hotelCase.people) {
+    const firstEvidence = person.evidence.find((event) => event.type === "point" && event.at === 0);
+    assert.deepEqual(paths[person.id], [firstEvidence.cell]);
+  }
 });
 
-test("the authored solution covers every open tile and identifies Elias", () => {
-  const result = validateBoard(hotelCase, hotelCase.solution);
-  assert.equal(result.valid, true, result.errors.join("\n"));
-  assert.equal(getWalkableCells(hotelCase).length, 45);
-  assert.equal(result.killer?.id, "elias");
-  assert.equal(findKiller(hotelCase, hotelCase.solution)?.id, "elias");
+test("one minute may be spent waiting but a departed tile cannot be revisited", () => {
+  const nora = hotelCase.people.find((person) => person.id === "nora");
+  assert.deepEqual(getNextMoveErrors(hotelCase, nora, [21], 21), []);
+  assert.ok(getNextMoveErrors(hotelCase, nora, [21, 28], 21).some((error) => error.includes("cannot return")));
 });
 
-test("Nora's camera order eliminates the alternate reconstruction", () => {
-  const nora = hotelCase.suspects.find((suspect) => suspect.id === "nora");
-  const alternate = [23, 22, 29, 30, 37, 36, 43, 42, 35, 28, 21];
-  assert.equal(clueSatisfied(nora, hotelCase.solution.nora), true);
-  assert.equal(clueSatisfied(nora, alternate), false);
+test("an exact camera timestamp rejects a move to the wrong tile", () => {
+  const vivian = hotelCase.people.find((person) => person.id === "vivian");
+  const partial = hotelCase.solution.vivian.slice(0, 4);
+  assert.equal(formatCaseTime(hotelCase, partial.length), "21:14");
+  assert.ok(getNextMoveErrors(hotelCase, vivian, partial, 4).some((error) => error.includes("North camera N1")));
+  assert.deepEqual(getNextMoveErrors(hotelCase, vivian, partial, 3), []);
 });
 
-test("an incomplete board cannot be submitted", () => {
-  const result = validateBoard(hotelCase, createInitialPaths(hotelCase));
-  assert.equal(result.valid, false);
-  assert.ok(result.errors.some((error) => error.includes("open floor tiles")));
+test("the authored timelines satisfy every person's evidence", () => {
+  for (const person of hotelCase.people) {
+    const path = hotelCase.solution[person.id];
+    assert.equal(timelineComplete(hotelCase, person, path), true, person.name);
+    assert.equal(validateTimeline(hotelCase, person, path).valid, true, person.name);
+    for (const event of person.evidence) assert.equal(evidenceSatisfied(event, path), true, `${person.name}: ${event.title}`);
+  }
 });
 
-test("path comparison detects a changed route", () => {
+test("overlapping routes are legal and location alone is inconclusive", () => {
+  const reconstruction = validateReconstruction(hotelCase, hotelCase.solution);
+  assert.equal(reconstruction.valid, true, reconstruction.errors.join("\n"));
+  const victimCells = new Set(hotelCase.solution.adrian);
+  for (const person of hotelCase.people.filter((entry) => entry.role === "suspect")) {
+    assert.ok(hotelCase.solution[person.id].some((cell) => victimCells.has(cell)), person.name);
+  }
+});
+
+test("the killer stays hidden until all six timelines are complete", () => {
+  assert.equal(findKiller(hotelCase, createInitialPaths(hotelCase)), null);
+  const incomplete = structuredClone(hotelCase.solution);
+  incomplete.adrian.pop();
+  assert.equal(findKiller(hotelCase, incomplete), null);
+});
+
+test("only Marcus meets Adrian during the forensic attack window", () => {
+  const attackEncounters = findTimedEncounters(hotelCase, hotelCase.solution).filter((event) => event.inAttackWindow);
+  assert.deepEqual(
+    attackEncounters.map(({ suspectId, cell, time }) => ({ suspectId, cell, time })),
+    [{ suspectId: "marcus", cell: 24, time: "21:18" }],
+  );
+  const result = validateReconstruction(hotelCase, hotelCase.solution);
+  assert.equal(result.killer?.id, "marcus");
+  assert.equal(result.encounter?.time, "21:18");
+});
+
+test("path comparison detects a changed timeline", () => {
   assert.equal(pathsEqual(hotelCase.solution, structuredClone(hotelCase.solution)), true);
   const changed = structuredClone(hotelCase.solution);
   changed.sara = changed.sara.slice(0, -1);
