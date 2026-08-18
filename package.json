@@ -1,0 +1,11 @@
+{
+  "name": "alibi-lines",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "verify:puzzle": "node scripts/verify-puzzle.mjs",
+    "check": "npm run test && npm run verify:puzzle && node --check src/app.js"
+  }
+}

@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#111923" />
+    <meta
+      name="description"
+      content="Alibi Lines is a route-deduction murder mystery. Reconstruct every suspect trail and expose the killer."
+    />
+    <title>Alibi Lines — Case 001</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="./" aria-label="Alibi Lines home">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span>Alibi Lines</span>
+        </a>
+        <div class="header-actions">
+          <span class="prototype-badge">Prototype</span>
+          <button class="icon-button" id="rules-button" type="button" aria-label="How to play">
+            <span aria-hidden="true">?</span>
+          </button>
+        </div>
+      </header>
+
+      <main>
+        <section class="case-heading" aria-labelledby="case-title">
+          <div>
+            <p class="eyebrow">Case file <span id="case-number"></span></p>
+            <h1 id="case-title"></h1>
+          </div>
+          <div class="case-meta">
+            <div>
+              <span>Camera blackout</span>
+              <strong id="time-window"></strong>
+            </div>
+            <div>
+              <span>Difficulty</span>
+              <strong>First case</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="briefing-card">
+          <div class="briefing-index">01</div>
+          <div>
+            <p class="briefing-label">Incident briefing</p>
+            <p id="briefing-copy"></p>
+          </div>
+          <div class="objective">
+            <span>Objective</span>
+            <p id="objective-copy"></p>
+          </div>
+        </section>
+
+        <div class="game-layout">
+          <section class="board-panel" aria-label="Blackthorn Hotel route board">
+            <div class="board-toolbar">
+              <div>
+                <span class="toolbar-label">Floor plan</span>
+                <strong><span id="covered-count">5</span> / <span id="tile-count">49</span> traces assigned</strong>
+              </div>
+              <div class="toolbar-legend" aria-label="Timeline legend">
+                <span><i class="legend-start"></i>21:10</span>
+                <span><i class="legend-end"></i>21:25</span>
+              </div>
+            </div>
+
+            <div class="grid-frame">
+              <div id="game-grid" class="game-grid" role="application" aria-label="Route drawing grid">
+                <div id="grid-cells" class="grid-cells"></div>
+                <svg id="route-layer" class="route-layer" viewBox="0 0 700 700" aria-hidden="true"></svg>
+              </div>
+            </div>
+
+            <div class="board-feedback" aria-live="polite">
+              <span class="feedback-kicker" id="feedback-kicker">Selected trail</span>
+              <p id="feedback-copy">Choose a suspect, then drag from their filled sighting marker.</p>
+            </div>
+
+            <div class="board-actions">
+              <div class="secondary-actions">
+                <button class="text-button" id="undo-button" type="button" disabled>Undo</button>
+                <button class="text-button" id="clear-button" type="button">Clear trail</button>
+                <button class="text-button" id="reset-button" type="button">Reset case</button>
+              </div>
+              <button class="primary-button" id="check-button" type="button">Check routes</button>
+            </div>
+          </section>
+
+          <aside class="case-sidebar">
+            <section class="evidence-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Forensic sequence</p>
+                  <h2>Weapon before victim</h2>
+                </div>
+                <span class="evidence-seal">Verified</span>
+              </div>
+              <div class="evidence-sequence">
+                <div class="evidence-item weapon-item">
+                  <span class="evidence-symbol">W</span>
+                  <div>
+                    <span>Missing weapon</span>
+                    <strong>Letter opener</strong>
+                  </div>
+                </div>
+                <span class="sequence-arrow" aria-hidden="true">→</span>
+                <div class="evidence-item victim-item">
+                  <span class="evidence-symbol">V</span>
+                  <div>
+                    <span>Victim</span>
+                    <strong id="victim-name"></strong>
+                  </div>
+                </div>
+              </div>
+              <p>The only trail crossing W and then V belongs to the killer.</p>
+            </section>
+
+            <section class="suspect-section">
+              <div class="section-heading suspect-heading">
+                <div>
+                  <p class="eyebrow">Trace evidence</p>
+                  <h2>Five suspects</h2>
+                </div>
+                <span id="completed-count">0 / 5 complete</span>
+              </div>
+              <div id="suspect-list" class="suspect-list"></div>
+            </section>
+
+            <section class="hint-card">
+              <div>
+                <span class="hint-label">Need a lead?</span>
+                <p id="hint-copy">Hints explain a deduction without filling the route for you.</p>
+              </div>
+              <button class="hint-button" id="hint-button" type="button">Reveal hint</button>
+            </section>
+          </aside>
+        </div>
+      </main>
+
+      <footer>
+        <span>Alibi Lines</span>
+        <span>Case 001 · Prototype build</span>
+      </footer>
+    </div>
+
+    <dialog id="rules-dialog" class="modal rules-modal">
+      <div class="modal-topline">
+        <span>Detective briefing</span>
+        <button class="modal-close" data-close-dialog="rules-dialog" type="button" aria-label="Close rules">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="eyebrow">How to play</p>
+        <h2>Reconstruct the blackout.</h2>
+        <p>
+          Every suspect was seen at 21:10 and again at 21:25. Connect their two sightings and account for every trace on the floor plan.
+        </p>
+        <ol class="rule-list">
+          <li><span>1</span><p>Start at a filled sighting marker and finish at the matching outlined marker.</p></li>
+          <li><span>2</span><p>Move one tile at a time, horizontally or vertically. Trails cannot overlap.</p></li>
+          <li><span>3</span><p>Use the exact number of tiles shown on each suspect card.</p></li>
+          <li><span>4</span><p>Every highlighted floor tile must belong to exactly one trail.</p></li>
+          <li><span>5</span><p>All evidence cards are true. Follow numbered cameras in the stated order.</p></li>
+        </ol>
+        <div class="murder-rule">
+          <span>Final deduction</span>
+          <p>The killer’s trail reaches the weapon tile before the victim tile.</p>
+        </div>
+      </div>
+      <button class="primary-button modal-primary" data-close-dialog="rules-dialog" type="button">Open case file</button>
+    </dialog>
+
+    <dialog id="result-dialog" class="modal result-modal">
+      <div class="result-stripe"></div>
+      <div class="modal-body">
+        <p class="eyebrow">Case closed</p>
+        <h2 id="result-title">The route tells the truth.</h2>
+        <div class="killer-reveal">
+          <span id="killer-initials"></span>
+          <div>
+            <small>Murderer identified</small>
+            <strong id="killer-name"></strong>
+          </div>
+        </div>
+        <p id="result-copy"></p>
+        <div class="result-stats">
+          <div><span>Board</span><strong>7 × 7</strong></div>
+          <div><span>Trails</span><strong>5 / 5</strong></div>
+          <div><span>Coverage</span><strong>49 / 49</strong></div>
+        </div>
+      </div>
+      <button class="primary-button modal-primary" data-close-dialog="result-dialog" type="button">Review solution</button>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
