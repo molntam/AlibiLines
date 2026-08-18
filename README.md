@@ -7,13 +7,13 @@ This repository contains the first playable prototype: **Case 001 — Blackthorn
 ## Prototype rules
 
 1. Select a suspect, then connect their labeled, filled **START 21:10** marker to their labeled, outlined **END 21:25** marker.
-2. Move horizontally or vertically; trails cannot overlap.
-3. Use the exact number of tiles shown on each suspect card.
-4. Assign every floor tile to exactly one suspect.
-5. Satisfy every evidence card and ordered camera clue.
+2. Move horizontally or vertically. Cross room boundaries only through marked doors, gates or hatches.
+3. Fixed furniture blocks its tile, and trails cannot overlap.
+4. Use the exact number of tiles shown on each suspect card.
+5. Assign all 45 open floor tiles and satisfy every evidence statement.
 6. The killer is the trail that reaches the weapon before the victim.
 
-The authored case has five suspects on a 7×7 floor plan. Each suspect has multiple legal personal routes, while the complete board has exactly one solution.
+The intermediate case has five suspects on a single 7×7 floor plan, four blocked furniture tiles and 23 architectural passages. The floor plan alone permits two complete reconstructions; Nora's camera-order evidence removes the false reconstruction and leaves exactly one solution.
 
 ## Run locally
 

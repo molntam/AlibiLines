@@ -41,7 +41,7 @@
             </div>
             <div>
               <span>Difficulty</span>
-              <strong>First case</strong>
+              <strong id="difficulty"></strong>
             </div>
           </div>
         </section>
@@ -63,12 +63,18 @@
             <div class="board-toolbar">
               <div>
                 <span class="toolbar-label">Floor plan</span>
-                <strong><span id="covered-count">5</span> / <span id="tile-count">49</span> traces assigned</strong>
+                <strong><span id="covered-count">5</span> / <span id="tile-count">45</span> open tiles assigned</strong>
               </div>
               <div class="toolbar-legend" aria-label="Timeline legend">
                 <span><i class="legend-start"></i><b>Start</b><small>21:10</small></span>
                 <span><i class="legend-end"></i><b>End</b><small>21:25</small></span>
               </div>
+            </div>
+
+            <div class="floor-key" aria-label="Floor plan symbols">
+              <span><i class="key-door"></i>Door</span>
+              <span><i class="key-gate"></i>Gate</span>
+              <span><i class="key-furniture"></i>Blocked furniture</span>
             </div>
 
             <div class="grid-frame">
@@ -159,14 +165,14 @@
         <p class="eyebrow">How to play</p>
         <h2>Reconstruct the blackout.</h2>
         <p>
-          Every suspect was seen at 21:10 and again at 21:25. Connect their two sightings and account for every trace on the floor plan.
+          Every suspect was seen at 21:10 and again at 21:25. Connect their sightings and account for every open tile on the floor plan.
         </p>
         <ol class="rule-list">
           <li><span>1</span><p>Follow the two board labels: START 21:10 is filled; END 21:25 is outlined.</p></li>
-          <li><span>2</span><p>Move one tile at a time, horizontally or vertically. Trails cannot overlap.</p></li>
-          <li><span>3</span><p>Use the exact number of tiles shown on each suspect card.</p></li>
-          <li><span>4</span><p>Every highlighted floor tile must belong to exactly one trail.</p></li>
-          <li><span>5</span><p>All evidence cards are true. Follow numbered cameras in the stated order.</p></li>
+          <li><span>2</span><p>Move horizontally or vertically. Solid walls stop trails; change rooms only through a door, gate or hatch.</p></li>
+          <li><span>3</span><p>Furniture occupies its tile and cannot be crossed. Trails cannot overlap.</p></li>
+          <li><span>4</span><p>Use the exact route length shown on each card and assign all 45 open tiles.</p></li>
+          <li><span>5</span><p>Every evidence statement is true. Camera labels must be visited in the stated order.</p></li>
         </ol>
         <div class="murder-rule">
           <span>Final deduction</span>
@@ -192,7 +198,7 @@
         <div class="result-stats">
           <div><span>Board</span><strong>7 × 7</strong></div>
           <div><span>Trails</span><strong>5 / 5</strong></div>
-          <div><span>Coverage</span><strong>49 / 49</strong></div>
+          <div><span>Coverage</span><strong>45 / 45</strong></div>
         </div>
       </div>
       <button class="primary-button modal-primary" data-close-dialog="result-dialog" type="button">Review solution</button>

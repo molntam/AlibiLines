@@ -354,6 +354,51 @@ a:focus-visible,
   background: transparent;
 }
 
+.floor-key {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--night-line);
+  color: #89969f;
+  background: #141f29;
+  font-size: 8px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.floor-key span {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.key-door,
+.key-gate,
+.key-furniture {
+  display: inline-block;
+  width: 16px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.key-door {
+  border-right: 3px solid #b38a56;
+  border-left: 3px solid #b38a56;
+  background: #eee7da;
+}
+
+.key-gate {
+  border: 1px solid #87949d;
+  background: repeating-linear-gradient(90deg, #87949d 0 1px, transparent 1px 4px);
+}
+
+.key-furniture {
+  border: 1px solid #677078;
+  background: repeating-linear-gradient(135deg, rgba(126, 113, 94, 0.6) 0 2px, transparent 2px 5px);
+}
+
 .grid-frame {
   padding: clamp(12px, 2vw, 24px);
   background:
@@ -397,19 +442,35 @@ a:focus-visible,
 }
 
 .cell.room-edge-top {
-  border-top: 3px solid #596169;
+  border-top: 4px solid #465159;
 }
 
 .cell.room-edge-left {
-  border-left: 3px solid #596169;
+  border-left: 4px solid #465159;
 }
 
 .cell.room-edge-right {
-  border-right: 3px solid #596169;
+  border-right: 4px solid #465159;
 }
 
 .cell.room-edge-bottom {
-  border-bottom: 3px solid #596169;
+  border-bottom: 4px solid #465159;
+}
+
+.cell.is-blocked {
+  background:
+    repeating-linear-gradient(135deg, rgba(72, 67, 59, 0.08) 0 5px, transparent 5px 10px),
+    color-mix(in srgb, var(--room-tone) 74%, #9f9586);
+}
+
+.cell.is-blocked::before {
+  position: absolute;
+  z-index: 1;
+  inset: 7%;
+  border: 1px solid rgba(66, 62, 56, 0.24);
+  border-radius: 8px;
+  background: rgba(71, 65, 57, 0.08);
+  content: "";
 }
 
 .cell.is-used::after {
@@ -486,6 +547,156 @@ a:focus-visible,
 
 .cell.has-selected-endpoint .cell-content {
   z-index: 7;
+}
+
+.passage {
+  position: absolute;
+  z-index: 8;
+  display: grid;
+  color: #f6f0e6;
+  background: #eee7da;
+  filter: drop-shadow(0 1px 1px rgba(35, 39, 42, 0.35));
+  place-items: center;
+}
+
+.passage-right {
+  top: 50%;
+  right: -6px;
+  width: 12px;
+  height: 46%;
+  transform: translateY(-50%);
+}
+
+.passage-bottom {
+  bottom: -6px;
+  left: 50%;
+  width: 46%;
+  height: 12px;
+  transform: translateX(-50%);
+}
+
+.passage-right.passage-door {
+  border-top: 3px solid #9d7548;
+  border-bottom: 3px solid #9d7548;
+}
+
+.passage-bottom.passage-door {
+  border-right: 3px solid #9d7548;
+  border-left: 3px solid #9d7548;
+}
+
+.passage-right.passage-gate {
+  border-top: 2px solid #52606a;
+  border-bottom: 2px solid #52606a;
+  background: repeating-linear-gradient(180deg, #586670 0 2px, #e9e2d6 2px 6px);
+}
+
+.passage-bottom.passage-gate {
+  border-right: 2px solid #52606a;
+  border-left: 2px solid #52606a;
+  background: repeating-linear-gradient(90deg, #586670 0 2px, #e9e2d6 2px 6px);
+}
+
+.passage-hatch {
+  border: 2px dashed #4d5b65;
+  background: #aeb5b5;
+}
+
+.passage b {
+  position: absolute;
+  display: grid;
+  width: 17px;
+  height: 17px;
+  border: 2px solid #f4eee4;
+  border-radius: 4px;
+  color: #f5efe5;
+  background: #27343d;
+  box-shadow: 0 2px 5px rgba(25, 29, 32, 0.3);
+  font-size: 7px;
+  font-weight: 900;
+  place-items: center;
+}
+
+.floor-object {
+  position: absolute;
+  z-index: 6;
+  inset: 12%;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  border: 1px solid rgba(69, 65, 58, 0.28);
+  border-radius: 8px;
+  color: #554f47;
+  background: rgba(240, 233, 220, 0.65);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.22);
+}
+
+.floor-object svg {
+  width: clamp(22px, 3.5vw, 38px);
+  height: clamp(22px, 3.5vw, 38px);
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.3;
+}
+
+.floor-object small {
+  margin-top: 2px;
+  font-size: clamp(5px, 0.65vw, 7px);
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.scene-object {
+  position: absolute;
+  z-index: 7;
+  top: 7%;
+  left: 7%;
+  display: grid;
+  width: clamp(27px, 3.5vw, 37px);
+  height: clamp(27px, 3.5vw, 37px);
+  border: 2px solid #f5efe5;
+  border-radius: 7px;
+  color: #fff8ed;
+  box-shadow: 0 3px 8px rgba(23, 28, 33, 0.3);
+  place-items: center;
+}
+
+.scene-object.weapon {
+  background: #7d5d2f;
+}
+
+.scene-object.victim {
+  background: #8d403e;
+}
+
+.scene-object svg {
+  width: 70%;
+  height: 70%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.scene-object small {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  width: 15px;
+  height: 15px;
+  border: 1px solid #f4eee4;
+  border-radius: 50%;
+  color: #f4eee4;
+  background: #26313b;
+  font-size: 6px;
+  font-weight: 900;
+  place-items: center;
 }
 
 .endpoint {
@@ -580,6 +791,21 @@ a:focus-visible,
   text-align: right;
 }
 
+.endpoint.callout-up .endpoint-callout {
+  top: auto;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
+.endpoint.callout-down .endpoint-callout {
+  top: calc(100% + 10px);
+  left: 50%;
+  text-align: center;
+  transform: translateX(-50%);
+}
+
 .endpoint-callout::before {
   position: absolute;
   top: 50%;
@@ -596,6 +822,23 @@ a:focus-visible,
 
 .endpoint.callout-left .endpoint-callout::before {
   left: 100%;
+}
+
+.endpoint.callout-up .endpoint-callout::before {
+  top: 100%;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  transform: translateX(-50%);
+}
+
+.endpoint.callout-down .endpoint-callout::before {
+  top: auto;
+  bottom: 100%;
+  left: 50%;
+  width: 2px;
+  height: 10px;
+  transform: translateX(-50%);
 }
 
 .endpoint-callout strong {
@@ -629,26 +872,6 @@ a:focus-visible,
   font-weight: 850;
   letter-spacing: -0.02em;
   place-items: center;
-}
-
-.evidence-marker.weapon,
-.evidence-marker.victim {
-  top: 7%;
-  right: auto;
-  bottom: auto;
-  left: 7%;
-  width: clamp(21px, 2.8vw, 29px);
-  height: clamp(21px, 2.8vw, 29px);
-  border-radius: 50%;
-  font-size: clamp(8px, 1.1vw, 11px);
-}
-
-.evidence-marker.weapon {
-  background: #7d5d2f;
-}
-
-.evidence-marker.victim {
-  background: #8d403e;
 }
 
 .board-feedback {
@@ -1421,6 +1644,78 @@ footer {
     font-size: 5px;
   }
 
+  .floor-key {
+    gap: 8px 12px;
+    flex-wrap: wrap;
+    padding: 7px 12px;
+    font-size: 6px;
+  }
+
+  .key-door,
+  .key-gate,
+  .key-furniture {
+    width: 13px;
+    height: 8px;
+  }
+
+  .passage-right {
+    right: -4px;
+    width: 8px;
+  }
+
+  .passage-bottom {
+    bottom: -4px;
+    height: 8px;
+  }
+
+  .passage-right.passage-door {
+    border-top-width: 2px;
+    border-bottom-width: 2px;
+  }
+
+  .passage-bottom.passage-door {
+    border-right-width: 2px;
+    border-left-width: 2px;
+  }
+
+  .passage b {
+    width: 13px;
+    height: 13px;
+    border-width: 1px;
+    font-size: 5px;
+  }
+
+  .floor-object {
+    inset: 9%;
+    border-radius: 5px;
+  }
+
+  .floor-object svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .floor-object small {
+    font-size: 4px;
+  }
+
+  .scene-object {
+    top: 5%;
+    left: 5%;
+    width: 21px;
+    height: 21px;
+    border-width: 1px;
+    border-radius: 5px;
+  }
+
+  .scene-object small {
+    right: -4px;
+    bottom: -4px;
+    width: 11px;
+    height: 11px;
+    font-size: 4px;
+  }
+
   .endpoint {
     width: 27px;
     height: 27px;
@@ -1453,9 +1748,23 @@ footer {
     right: calc(100% + 6px);
   }
 
+  .endpoint.callout-up .endpoint-callout {
+    bottom: calc(100% + 6px);
+  }
+
+  .endpoint.callout-down .endpoint-callout {
+    top: calc(100% + 6px);
+  }
+
   .endpoint-callout::before {
     width: 6px;
     height: 1px;
+  }
+
+  .endpoint.callout-up .endpoint-callout::before,
+  .endpoint.callout-down .endpoint-callout::before {
+    width: 1px;
+    height: 6px;
   }
 
   .endpoint-callout strong {
@@ -1473,15 +1782,6 @@ footer {
     height: 15px;
     border-width: 1px;
     font-size: 5px;
-  }
-
-  .evidence-marker.weapon,
-  .evidence-marker.victim {
-    top: 4%;
-    left: 4%;
-    width: 18px;
-    height: 18px;
-    font-size: 7px;
   }
 
   .toolbar-legend {

@@ -1,10 +1,13 @@
 import { hotelCase } from "./case.js";
 import {
+  canMove,
   clueSatisfied,
   createInitialPaths,
+  getBlockingObject,
   getEndpointOwner,
   getOccupancy,
   getSuspect,
+  getWalkableCells,
   isAdjacent,
   pathsEqual,
   routeComplete,
@@ -14,11 +17,20 @@ import {
 const storageKey = `alibi-lines:${hotelCase.id}:paths`;
 const solvedKey = `alibi-lines:${hotelCase.id}:solved`;
 const svgNamespace = "http://www.w3.org/2000/svg";
+const floorObjectIcons = {
+  desk: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M6 13h28v15H6zM10 28v6m20-6v6M20 13v15M23 18h6"/></svg>',
+  statue: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="10" r="5"/><path d="M13 28c1-8 3-13 7-13s6 5 7 13M9 29h22v5H9z"/></svg>',
+  piano: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M7 9h24c3 0 4 2 3 5l-3 13H9zM11 27v7m17-7v7M10 18h22M15 18v9m5-9v9m5-9v9"/></svg>',
+  fountain: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 7v12m-6-8c0 4 2 7 6 8 4-1 6-4 6-8M8 22h24c-1 7-5 11-12 11S9 29 8 22z"/></svg>',
+  weapon: '<svg viewBox="0 0 40 40" aria-hidden="true"><path d="M29 7 16 24m-4-2 7 6m-10 4 8-8m9-14 4-3-1 5"/></svg>',
+  victim: '<svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="9" r="4"/><path d="M20 13v10m0-5-8 5m8-5 8 5m-8 0-6 10m6-10 6 10"/></svg>'
+};
 
 const elements = {
   caseNumber: document.querySelector("#case-number"),
   caseTitle: document.querySelector("#case-title"),
   timeWindow: document.querySelector("#time-window"),
+  difficulty: document.querySelector("#difficulty"),
   briefing: document.querySelector("#briefing-copy"),
   objective: document.querySelector("#objective-copy"),
   victimName: document.querySelector("#victim-name"),
@@ -56,12 +68,24 @@ for (const room of hotelCase.rooms) {
 
 const markersByCell = new Map();
 for (const suspect of hotelCase.suspects) {
-  for (const marker of suspect.markers) {
+  for (const marker of suspect.markers ?? []) {
     const markers = markersByCell.get(marker.cell) ?? [];
     markers.push(marker);
     markersByCell.set(marker.cell, markers);
   }
 }
+
+const objectByCell = new Map(hotelCase.objects.map((object) => [object.cell, object]));
+const passagesByCell = new Map();
+for (const passage of hotelCase.passages) {
+  const [first, second] = passage.cells;
+  const horizontal = Math.floor(first / hotelCase.size) === Math.floor(second / hotelCase.size);
+  const anchor = Math.min(first, second);
+  const passages = passagesByCell.get(anchor) ?? [];
+  passages.push({ passage, side: horizontal ? "right" : "bottom" });
+  passagesByCell.set(anchor, passages);
+}
+const walkableCount = getWalkableCells(hotelCase).length;
 
 let paths = loadPaths();
 let selectedSuspectId = hotelCase.suspects[0].id;
@@ -133,6 +157,22 @@ function roomEdgeClasses(cell) {
   return classes.join(" ");
 }
 
+function createFloorObjectMarker(object) {
+  const marker = document.createElement("span");
+  marker.className = `floor-object object-${object.type}`;
+  marker.title = `${object.label} — blocked`;
+  marker.innerHTML = `${floorObjectIcons[object.type]}<small>${object.shortLabel}</small>`;
+  return marker;
+}
+
+function createSceneMarker(evidence) {
+  const marker = document.createElement("span");
+  marker.className = `scene-object ${evidence.type}`;
+  marker.title = evidence.label;
+  marker.innerHTML = `${floorObjectIcons[evidence.type]}<small>${evidence.shortLabel}</small>`;
+  return marker;
+}
+
 function renderGridCells() {
   const occupancy = getOccupancy(paths);
   const endpointByCell = new Map();
@@ -144,10 +184,11 @@ function renderGridCells() {
   elements.cells.innerHTML = "";
   for (let cell = 0; cell < hotelCase.size ** 2; cell += 1) {
     const room = roomByCell.get(cell);
+    const floorObject = objectByCell.get(cell);
     const ownerId = occupancy.get(cell);
     const owner = ownerId ? getSuspect(hotelCase, ownerId) : null;
     const cellElement = document.createElement("div");
-    cellElement.className = `cell ${roomEdgeClasses(cell)}${owner ? " is-used" : ""}`;
+    cellElement.className = `cell ${roomEdgeClasses(cell)}${owner ? " is-used" : ""}${floorObject?.blocking ? " is-blocked" : ""}`;
     cellElement.dataset.cell = String(cell);
     cellElement.style.setProperty("--room-tone", room.tone);
     if (owner) cellElement.style.setProperty("--trail-color", owner.color);
@@ -161,6 +202,16 @@ function renderGridCells() {
       label.textContent = room.name;
       content.append(label);
     }
+
+    for (const { passage, side } of passagesByCell.get(cell) ?? []) {
+      const marker = document.createElement("span");
+      marker.className = `passage passage-${side} passage-${passage.type}`;
+      marker.title = passage.label;
+      if (passage.code) marker.innerHTML = `<b>${passage.code}</b>`;
+      content.append(marker);
+    }
+
+    if (floorObject) content.append(createFloorObjectMarker(floorObject));
 
     const endpoint = endpointByCell.get(cell);
     if (endpoint) {
@@ -176,7 +227,14 @@ function renderGridCells() {
 
       if (isSelected) {
         const col = cell % hotelCase.size;
-        marker.classList.add(col >= hotelCase.size - 2 ? "callout-left" : "callout-right");
+        const otherCell = isStart ? endpoint.suspect.end : endpoint.suspect.start;
+        const otherCol = otherCell % hotelCase.size;
+        const sameRow = Math.floor(cell / hotelCase.size) === Math.floor(otherCell / hotelCase.size);
+        if (sameRow && Math.abs(col - otherCol) === 1) {
+          marker.classList.add(isStart ? "callout-up" : "callout-down");
+        } else {
+          marker.classList.add(col >= hotelCase.size - 2 ? "callout-left" : "callout-right");
+        }
         const callout = document.createElement("span");
         callout.className = "endpoint-callout";
         callout.setAttribute("aria-hidden", "true");
@@ -196,21 +254,8 @@ function renderGridCells() {
       content.append(marker);
     }
 
-    if (cell === hotelCase.evidence.weapon.cell) {
-      const marker = document.createElement("span");
-      marker.className = "evidence-marker weapon";
-      marker.textContent = hotelCase.evidence.weapon.shortLabel;
-      marker.title = hotelCase.evidence.weapon.label;
-      content.append(marker);
-    }
-
-    if (cell === hotelCase.evidence.victim.cell) {
-      const marker = document.createElement("span");
-      marker.className = "evidence-marker victim";
-      marker.textContent = hotelCase.evidence.victim.shortLabel;
-      marker.title = hotelCase.evidence.victim.label;
-      content.append(marker);
-    }
+    if (cell === hotelCase.evidence.weapon.cell) content.append(createSceneMarker(hotelCase.evidence.weapon));
+    if (cell === hotelCase.evidence.victim.cell) content.append(createSceneMarker(hotelCase.evidence.victim));
 
     cellElement.append(content);
     elements.cells.append(cellElement);
@@ -304,7 +349,7 @@ function renderSuspects() {
 function renderProgress() {
   const occupancy = getOccupancy(paths);
   elements.coveredCount.textContent = String(occupancy.size);
-  elements.tileCount.textContent = String(hotelCase.size ** 2);
+  elements.tileCount.textContent = String(walkableCount);
   elements.undoButton.disabled = history.length === 0;
 
   const suspect = getSuspect(hotelCase, selectedSuspectId);
@@ -346,6 +391,17 @@ function applyCell(cell, quiet = false) {
   const tail = currentPath.at(-1);
   if (!isAdjacent(tail, cell, hotelCase.size)) {
     if (!quiet) showToast("Continue from the end of the selected trail, one tile at a time.");
+    return false;
+  }
+
+  if (!canMove(hotelCase, tail, cell)) {
+    const blockingObject = getBlockingObject(hotelCase, cell);
+    const kicker = blockingObject ? "Blocked tile" : "Solid wall";
+    const message = blockingObject
+      ? `${blockingObject.label} occupies that floor tile.`
+      : "You can change rooms only through a marked door, gate or hatch.";
+    setFeedback(kicker, message);
+    if (!quiet) showToast(message);
     return false;
   }
 
@@ -498,8 +554,8 @@ elements.checkButton.addEventListener("click", () => {
     const incomplete = hotelCase.suspects.find((suspect) => !routeComplete(suspect, paths[suspect.id]));
     if (incomplete) selectedSuspectId = incomplete.id;
     render();
-    const remaining = hotelCase.size ** 2 - getOccupancy(paths).size;
-    showToast(remaining > 0 ? `${remaining} floor tiles are still unassigned.` : result.errors[0]);
+    const remaining = walkableCount - getOccupancy(paths).size;
+    showToast(remaining > 0 ? `${remaining} open floor tiles are still unassigned.` : result.errors[0]);
     return;
   }
 
@@ -519,7 +575,7 @@ function showResult(killer) {
   elements.resultDialog.style.setProperty("--killer-color", killer.color);
   elements.killerInitials.textContent = killer.initials;
   elements.killerName.textContent = killer.name;
-  elements.resultCopy.textContent = `${killer.name} left the service wing with the missing letter opener, crossed the courtyard service door and reached ${hotelCase.victimName} in the lounge before the cameras returned.`;
+  elements.resultCopy.textContent = `${killer.name} took the letter opener from the service wing, crossed staff hatch H and reached ${hotelCase.victimName} in the Grand Hall before the cameras returned.`;
   elements.resultDialog.showModal();
 }
 
@@ -548,6 +604,7 @@ for (const dialog of document.querySelectorAll("dialog")) {
 elements.caseNumber.textContent = hotelCase.number;
 elements.caseTitle.textContent = hotelCase.title;
 elements.timeWindow.textContent = hotelCase.timeWindow;
+elements.difficulty.textContent = hotelCase.difficulty;
 elements.briefing.textContent = hotelCase.briefing;
 elements.objective.textContent = hotelCase.objective;
 elements.victimName.textContent = hotelCase.victimName;

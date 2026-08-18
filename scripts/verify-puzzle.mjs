@@ -1,5 +1,5 @@
 import { hotelCase } from "../src/case.js";
-import { clueSatisfied, findKiller, isAdjacent, pathsEqual } from "../src/game-logic.js";
+import { canMove, clueSatisfied, findKiller, getWalkableCells, pathsEqual } from "../src/game-logic.js";
 
 const endpointOwner = new Map();
 for (const suspect of hotelCase.suspects) {
@@ -8,21 +8,17 @@ for (const suspect of hotelCase.suspects) {
 }
 
 function neighbors(cell) {
-  const result = [];
-  for (let candidate = 0; candidate < hotelCase.size ** 2; candidate += 1) {
-    if (isAdjacent(cell, candidate, hotelCase.size)) result.push(candidate);
-  }
-  return result;
+  return getWalkableCells(hotelCase).filter((candidate) => canMove(hotelCase, cell, candidate));
 }
 
-function enumeratePaths(suspect) {
+function enumeratePaths(suspect, applyClue) {
   const paths = [];
   const path = [suspect.start];
   const visited = new Set(path);
 
   function walk(cell) {
     if (path.length === suspect.length) {
-      if (cell === suspect.end && clueSatisfied(suspect, path)) paths.push([...path]);
+      if (cell === suspect.end && (!applyClue || clueSatisfied(suspect, path))) paths.push([...path]);
       return;
     }
 
@@ -51,49 +47,62 @@ function enumeratePaths(suspect) {
   return paths;
 }
 
-const candidates = new Map();
+function combineCandidates(candidates, limit, requireKiller) {
+  const orderedSuspects = [...hotelCase.suspects].sort(
+    (left, right) => candidates.get(left.id).length - candidates.get(right.id).length,
+  );
+  const occupied = new Set();
+  const selection = {};
+  const solutions = [];
+
+  function combine(index) {
+    if (solutions.length >= limit) return;
+    if (index === orderedSuspects.length) {
+      if (occupied.size !== getWalkableCells(hotelCase).length) return;
+      if (requireKiller && !findKiller(hotelCase, selection)) return;
+      solutions.push(structuredClone(selection));
+      return;
+    }
+
+    const suspect = orderedSuspects[index];
+    for (const path of candidates.get(suspect.id)) {
+      if (path.some((cell) => occupied.has(cell))) continue;
+      for (const cell of path) occupied.add(cell);
+      selection[suspect.id] = path;
+      combine(index + 1);
+      delete selection[suspect.id];
+      for (const cell of path) occupied.delete(cell);
+    }
+  }
+
+  combine(0);
+  return solutions;
+}
+
+const rawCandidates = new Map();
+const constrainedCandidates = new Map();
 for (const suspect of hotelCase.suspects) {
-  const routes = enumeratePaths(suspect);
-  candidates.set(suspect.id, routes);
-  console.log(`${suspect.name}: ${routes.length} personal routes`);
+  const rawRoutes = enumeratePaths(suspect, false);
+  const constrainedRoutes = enumeratePaths(suspect, true);
+  rawCandidates.set(suspect.id, rawRoutes);
+  constrainedCandidates.set(suspect.id, constrainedRoutes);
+  console.log(`${suspect.name}: ${rawRoutes.length} floor-plan routes, ${constrainedRoutes.length} after evidence`);
 }
 
-const orderedSuspects = [...hotelCase.suspects].sort(
-  (left, right) => candidates.get(left.id).length - candidates.get(right.id).length,
-);
-const occupied = new Set();
-const selection = {};
-const solutions = [];
+const rawSolutions = combineCandidates(rawCandidates, 3, false);
+const solutions = combineCandidates(constrainedCandidates, 2, true);
 
-function combine(index) {
-  if (solutions.length >= 2) return;
-  if (index === orderedSuspects.length) {
-    if (occupied.size !== hotelCase.size ** 2) return;
-    if (!findKiller(hotelCase, selection)) return;
-    solutions.push(structuredClone(selection));
-    return;
-  }
-
-  const suspect = orderedSuspects[index];
-  for (const path of candidates.get(suspect.id)) {
-    if (path.some((cell) => occupied.has(cell))) continue;
-    for (const cell of path) occupied.add(cell);
-    selection[suspect.id] = path;
-    combine(index + 1);
-    delete selection[suspect.id];
-    for (const cell of path) occupied.delete(cell);
-  }
-}
-
-combine(0);
-
-if (solutions.length !== 1) {
-  console.error(`Expected exactly one solution, found ${solutions.length === 2 ? "at least two" : solutions.length}.`);
+if (rawSolutions.length !== 2) {
+  console.error(`Expected two floor-plan reconstructions before evidence, found ${rawSolutions.length}.`);
+  process.exitCode = 1;
+} else if (solutions.length !== 1) {
+  console.error(`Expected exactly one evidenced solution, found ${solutions.length === 2 ? "at least two" : solutions.length}.`);
   process.exitCode = 1;
 } else if (!pathsEqual(solutions[0], hotelCase.solution)) {
   console.error("The unique solver result does not match the authored solution.");
   process.exitCode = 1;
 } else {
-  console.log("Verified: the case has exactly one complete solution.");
+  console.log("Verified: Nora’s camera order eliminates the second complete reconstruction.");
+  console.log("Verified: the evidenced case has exactly one complete solution.");
   console.log(`Verified: ${findKiller(hotelCase, solutions[0]).name} is the only possible killer.`);
 }
