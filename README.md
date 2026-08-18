@@ -6,7 +6,7 @@ This repository contains the first playable prototype: **Case 001 — Blackthorn
 
 ## Prototype rules
 
-1. Connect each suspect's filled 21:10 marker to their outlined 21:25 marker.
+1. Select a suspect, then connect their labeled, filled **START 21:10** marker to their labeled, outlined **END 21:25** marker.
 2. Move horizontally or vertically; trails cannot overlap.
 3. Use the exact number of tiles shown on each suspect card.
 4. Assign every floor tile to exactly one suspect.

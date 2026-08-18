@@ -164,12 +164,27 @@ function renderGridCells() {
 
     const endpoint = endpointByCell.get(cell);
     if (endpoint) {
+      const isSelected = endpoint.suspect.id === selectedSuspectId;
+      const isStart = endpoint.type === "start";
       const marker = document.createElement("span");
-      marker.className = `endpoint ${endpoint.type}`;
+      marker.className = `endpoint ${endpoint.type}${isSelected ? " is-selected" : ""}`;
       marker.style.setProperty("--suspect-color", endpoint.suspect.color);
-      marker.dataset.time = endpoint.type === "start" ? "10" : "25";
+      marker.dataset.step = isStart ? "S" : "E";
       marker.textContent = endpoint.suspect.initials;
-      marker.title = `${endpoint.suspect.name}, ${endpoint.type === "start" ? "21:10" : "21:25"} sighting`;
+      marker.title = `${endpoint.suspect.name} — ${isStart ? "start at 21:10" : "end at 21:25"}`;
+      marker.setAttribute("aria-label", marker.title);
+
+      if (isSelected) {
+        const col = cell % hotelCase.size;
+        marker.classList.add(col >= hotelCase.size - 2 ? "callout-left" : "callout-right");
+        const callout = document.createElement("span");
+        callout.className = "endpoint-callout";
+        callout.setAttribute("aria-hidden", "true");
+        callout.innerHTML = `<strong>${isStart ? "Start" : "End"}</strong><small>${isStart ? "21:10" : "21:25"}</small>`;
+        marker.append(callout);
+        cellElement.classList.add("has-selected-endpoint");
+      }
+
       content.append(marker);
     }
 
@@ -264,6 +279,11 @@ function renderSuspects() {
           <i class="clue-state${clueIsSatisfied ? " satisfied" : ""}" aria-label="${clueIsSatisfied ? "Evidence satisfied" : "Evidence not yet satisfied"}"></i>
         </span>
         <p>${suspect.clue}</p>
+        <span class="suspect-timeline" aria-label="Start at 21:10 and end at 21:25">
+          <span><i class="timeline-start"></i>Start 21:10</span>
+          <b aria-hidden="true">→</b>
+          <span><i class="timeline-end"></i>End 21:25</span>
+        </span>
       </span>
       <span class="route-meter${complete ? " complete" : ""}">
         <strong>${path.length} / ${suspect.length}</strong>
@@ -272,7 +292,6 @@ function renderSuspects() {
     `;
     card.addEventListener("click", () => {
       selectedSuspectId = suspect.id;
-      setFeedback("Selected trail", `${suspect.name}: ${path.length} of ${suspect.length} tiles assigned.`);
       render();
       elements.grid.focus({ preventScroll: true });
     });
@@ -293,11 +312,14 @@ function renderProgress() {
   if (solved) {
     setFeedback("Case closed", "Every trace is accounted for. Select a suspect to review the reconstructed route.");
   } else if (path.at(-1) === suspect.end && path.length < suspect.length) {
-    setFeedback("Route too short", `${suspect.name} reached the final sighting too early. The trail needs ${suspect.length} tiles.`);
+    setFeedback("Route too short", `${suspect.name} reached END 21:25 too early. The trail needs ${suspect.length} tiles.`);
   } else if (path.length === suspect.length && path.at(-1) !== suspect.end) {
-    setFeedback("Wrong final tile", `${suspect.name} must finish on the outlined 21:25 sighting marker.`);
+    setFeedback("Wrong final tile", `${suspect.name} must finish on the outlined END 21:25 sighting marker.`);
   } else {
-    setFeedback("Selected trail", `${suspect.name}: ${path.length} of ${suspect.length} tiles assigned.`);
+    setFeedback(
+      "Selected trail",
+      `${suspect.name}: filled START 21:10 → outlined END 21:25 · ${path.length} of ${suspect.length} tiles assigned.`,
+    );
   }
 }
 
